@@ -1,6 +1,4 @@
-from pathlib import Path
-
-readme = r"""# WatchMyWork
+# WatchMyWork
 
 > **Show one browser test. Generate and run the rest.**
 
