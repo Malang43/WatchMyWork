@@ -1,7 +1,8 @@
-"""Verify only production recording and Analyze readiness using synthetic data.
+"""Verify production recording and analysis using synthetic data.
 
-Does not analyze, approve, execute workflows, or remove persisted data.
+Does not approve, execute workflows, or remove persisted data.
 """
+import argparse
 import re
 import tempfile
 from pathlib import Path
@@ -11,11 +12,26 @@ from playwright.sync_api import sync_playwright, expect
 
 ORIGIN = 'https://watchmywork-production.up.railway.app'
 ROOT = Path(__file__).resolve().parents[1]
+parser = argparse.ArgumentParser()
+parser.add_argument('--stop-active', action='store_true', help='Stop the existing recording without deleting its data.')
+args = parser.parse_args()
 
 with httpx.Client(base_url=ORIGIN, timeout=30) as client:
     response = client.get('/teach/current')
     response.raise_for_status()
-    assert response.json() is None, 'An existing recording is active; finish it before running this test.'
+    active = response.json()
+    if active is None:
+        print('No active production recording; existing saved data untouched.', flush=True)
+    if active and args.stop_active:
+        stopped = client.post('/demos/' + active['id'] + '/stop', headers={'X-WatchMyWork': 'local-demo'})
+        stopped.raise_for_status()
+        saved = stopped.json()
+        persisted = client.get('/demos', params={'dataset_id': saved['dataset_id']})
+        persisted.raise_for_status()
+        assert next(d for d in persisted.json() if d['id'] == saved['id']) == saved
+        print(f"Existing recording preserved: demonstration_id={saved['id']} state={saved['state']} event_count={len(saved['events'])}", flush=True)
+        active = client.get('/teach/current').json()
+    assert active is None, 'An existing recording is active; finish it before running this test.'
 
 with sync_playwright() as pw:
     extension = str(ROOT / 'extension')
@@ -30,10 +46,23 @@ with sync_playwright() as pw:
             page = context.new_page()
             page.goto(ORIGIN)
             page.get_by_role('button', name='New Workflow', exact=True).last.click()
-            page.get_by_label('Upload spreadsheet').set_input_files({
-                'name': 'production-teach-regression.csv', 'mimeType': 'text/csv',
-                'buffer': b'Email,Password,Expected Result,Actual Result,Status\ndev@example.com,test123,Login successful,,\n',
-            })
+            # New Workflow checks /teach/current before mounting the fresh wizard.
+            # set_input_files can target a hidden input, so wait for navigation.
+            expect(page.get_by_label('Upload spreadsheet')).to_be_visible()
+            with page.expect_response(lambda response: response.url == ORIGIN + '/datasets' and response.request.method == 'POST') as upload:
+                page.get_by_label('Upload spreadsheet').set_input_files({
+                    'name': 'production-teach-regression.csv', 'mimeType': 'text/csv',
+                    'buffer': b'Email,Password,Expected Result,Actual Result,Status\ndev@example.com,test123,Login successful,,\n',
+                })
+            assert upload.value.status == 200, f'Upload returned HTTP {upload.value.status}'
+            dataset = upload.value.json()
+            assert 'id' in dataset and 'columns' in dataset, 'Upload did not return dataset metadata'
+            print('Synthetic upload=200', flush=True)
+            page.get_by_label('Input 1', exact=True).select_option('Email')
+            page.get_by_label('Input 2 (optional)', exact=True).select_option('Password')
+            page.get_by_label('Destination / output column', exact=True).select_option('Actual Result')
+            page.get_by_label('Expected output', exact=True).select_option('Expected Result')
+            page.get_by_label('Test status', exact=True).select_option('Status')
             page.get_by_role('button', name='Continue to Teach').click()
             analyze = page.get_by_role('button', name='Analyze Workflow')
             expect(analyze).to_be_disabled()
@@ -63,7 +92,17 @@ with sync_playwright() as pw:
             assert any(url.endswith('/events') and status == 200 for url, status in statuses)
             assert not any(re.match(r'http://(?:127\.0\.0\.1|localhost):(?:8000|8001|5173)', url) for url in requests)
             page.reload()
+            page.get_by_role('button', name='New Workflow', exact=True).first.click()
             expect(page.get_by_role('button', name='Analyze Workflow')).to_be_enabled(timeout=15000)
-            print(f'PASS demonstration_id={demo_id} events=200 save=200 state=complete Analyze=enabled restored=enabled localhost_requests=0')
+            print(f'PASS demonstration_id={demo_id} events=200 save=200 state=complete captured_message=visible Analyze=enabled restored=enabled localhost_requests=0', flush=True)
+            with page.expect_response(lambda response: response.url == ORIGIN + '/workflows/infer' and response.request.method == 'POST', timeout=400000) as inference:
+                page.get_by_role('button', name='Analyze Workflow').click()
+            response = inference.value
+            assert response.status == 200, f'Analyze returned HTTP {response.status}'
+            workflow = response.json()
+            assert demo_id in workflow['demo_ids']
+            assert workflow['confirmed'] is False
+            expect(page.get_by_role('button', name='Confirm Workflow')).to_be_visible(timeout=15000)
+            print(f"PASS Analyze POST /workflows/infer=200 workflow_id={workflow['id']} source={workflow['source']} review=visible confirmed=false", flush=True)
         finally:
             context.close()
