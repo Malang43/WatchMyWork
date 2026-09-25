@@ -1,0 +1,6 @@
+Email,Password,Expected Result,Actual Result,Status
+dev@example.com,test123,Login successful,,
+admin@example.com,admin123,Login successful,,
+dev@example.com,wrongpass,Invalid credentials,,
+unknown@example.com,abc123,User not found,,
+,,Email and password are required,,

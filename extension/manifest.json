@@ -1,0 +1,11 @@
+{
+  "manifest_version": 3,
+  "name": "WatchMyWork — Teach Mode",
+  "version": "0.1.0",
+  "description": "Record semantic demonstrations on the local WatchMyWork mock site.",
+  "permissions": ["storage"],
+  "host_permissions": ["http://127.0.0.1:8000/*"],
+  "background": { "service_worker": "background.js" },
+  "action": { "default_popup": "popup.html", "default_title": "WatchMyWork Teach Mode" },
+  "content_scripts": [{ "matches": ["http://127.0.0.1:5173/*"], "js": ["recorder.js"], "run_at": "document_idle" }]
+}

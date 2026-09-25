@@ -1,0 +1,17 @@
+.env
+.env.*
+!.env.example
+node_modules/
+dist/
+coverage/
+*.tsbuildinfo
+*.log
+__pycache__/
+.venv/
+*.pyc
+.pytest_cache/
+backend/data/
+test-results/
+playwright-report/
+
+bob_debug_package/
