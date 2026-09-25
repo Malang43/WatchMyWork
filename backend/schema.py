@@ -3,7 +3,7 @@ import re
 from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-MOCK_URL = 'http://127.0.0.1:5173/'
+from .config import WEATHER_URL as MOCK_URL, DEVELOPER_URL, PRODUCTION, PUBLIC_ORIGIN
 TARGETS = {'fill': '#tracking-id', 'click': 'button[type="submit"]', 'extract': '#tracking-result .status'}
 WEATHER_INPUTS = ['#latitude-input', '#longitude-input']
 WEATHER_CLICK = '#check-weather-button'
@@ -91,15 +91,17 @@ class Exceptions(StrictModel):
 class Workflow(Mapping):
     workflow_name: str = Field(min_length=1, max_length=100)
     goal: str = Field(min_length=1, max_length=300)
-    url: Literal['http://127.0.0.1:5173/', 'http://127.0.0.1:5173/developer'] = MOCK_URL
+    url: str = Field(default=MOCK_URL, max_length=2048)
     loop: Literal['for_each_populated_row']
     steps: list[Step] = Field(min_length=4, max_length=6)
     exceptions: Exceptions
 
     @model_validator(mode='after')
     def safe_plan(self):
+        if PRODUCTION and not PUBLIC_ORIGIN:
+            raise ValueError('Configure the production public origin before recording or execution')
         dev = developer(self)
-        if self.url != (MOCK_URL + 'developer' if dev else MOCK_URL):
+        if self.url != (DEVELOPER_URL if dev else MOCK_URL):
             raise ValueError('Target must match the selected local mode')
         weather = len(self.input_columns) == 2
         click_target = '#login-button' if dev else WEATHER_CLICK
@@ -134,7 +136,13 @@ class Event(StrictModel):
     role: str = Field(default='', max_length=50)
     value: str = Field(default='', max_length=500)
     text: str = Field(default='', max_length=500)
-    url: Literal['http://127.0.0.1:5173/', 'http://127.0.0.1:5173/developer'] = MOCK_URL
+    url: str = Field(default=MOCK_URL, max_length=2048)
+
+    @model_validator(mode='after')
+    def safe_url(self):
+        if (PRODUCTION and not PUBLIC_ORIGIN) or self.url not in (MOCK_URL, DEVELOPER_URL):
+            raise ValueError('Only the configured bundled demo URLs are supported')
+        return self
 
 class EventBatch(StrictModel):
     events: list[Event] = Field(min_length=1, max_length=50)
@@ -159,4 +167,4 @@ def demonstrated_plan(input_column: str | list[str], destination_column: str) ->
     if weather:
         steps.append(Step(action='wait', target='#login-result' if dev else WEATHER_RESULT))
     steps.extend([Step(action='extract', target='#login-result' if dev else WEATHER_RESULT if weather else TARGETS['extract'], save_as=variable), Step(action='write_spreadsheet', column=destination_column, value='{{' + variable + '}}')])
-    return Workflow(mode='developer' if dev else 'lookup', expected_column=getattr(input_column, 'expected_column', None), status_column=getattr(input_column, 'status_column', None), url=MOCK_URL + 'developer' if dev else MOCK_URL, workflow_name='Learned login test' if dev else 'Check Current Weather' if weather else 'Check Tracking Status', goal='Run browser tests and compare expected results' if dev else 'Look up current temperature for each coordinate pair' if weather else 'Verify each tracking ID on the local mock website', input_columns=columns, destination_column=destination_column, loop='for_each_populated_row', steps=steps, exceptions=Exceptions())
+    return Workflow(mode='developer' if dev else 'lookup', expected_column=getattr(input_column, 'expected_column', None), status_column=getattr(input_column, 'status_column', None), url=DEVELOPER_URL if dev else MOCK_URL, workflow_name='Learned login test' if dev else 'Check Current Weather' if weather else 'Check Tracking Status', goal='Run browser tests and compare expected results' if dev else 'Look up current temperature for each coordinate pair' if weather else 'Verify each tracking ID on the local mock website', input_columns=columns, destination_column=destination_column, loop='for_each_populated_row', steps=steps, exceptions=Exceptions())

@@ -394,6 +394,61 @@ The hackathon MVP includes several safeguards:
 
 ---
 
+## Railway Deployment
+
+Deploy one Docker service with one public domain and one persistent volume. The existing three-server **local** setup and `extension/` remain unchanged.
+
+1. Connect this GitHub repository to Railway and select the repository root.
+2. Railway detects the root `Dockerfile`; `railway.json` sets `/health` as the health check. Both Vite apps are built into the Python container; no Node or Vite server runs in production.
+3. Add one persistent volume mounted at `/data`.
+4. Configure Railway variables:
+
+   ```text
+   OPENROUTER_API_KEY=<your server-side key>
+   DATABASE_PATH=/data/watchmywork.sqlite3
+   BOB_DEBUG_DIR=/data/bob_debug_package
+   ```
+
+   Railway supplies `PORT`. The Docker image sets `WATCHMYWORK_PRODUCTION=1`. Its start command is `python -m backend`, which runs one Uvicorn worker on `0.0.0.0:$PORT` (8000 if unset). Keep one service replica and one worker for the executor locks and SQLite.
+5. Deploy when ready. This repository preparation does not deploy anything.
+6. Generate the public domain. The backend uses Railway's `RAILWAY_PUBLIC_DOMAIN`; restart/redeploy after assigning the domain. For a custom domain or an explicit override, set `PUBLIC_ORIGIN` to the exact final HTTPS origin, without a path or trailing slash. Recording/execution require this origin; `/health` can pass before the domain exists.
+7. Generate a production extension using the actual domain (replace the example argument; no placeholder is included in a manifest):
+
+   ```powershell
+   node extension/configure.mjs https://YOUR_FINAL_RAILWAY_DOMAIN
+   node extension/validate.mjs ../extension-production
+   ```
+
+   This creates `extension-production/` with only that host permission and `/developer` and `/weather` content-script matches. It leaves the local `extension/` intact. No recorder logic needs editing.
+8. In `chrome://extensions`, load the generated `extension-production/` folder, or reload it after regenerating. Refresh the demo tab. Use the original `extension/` for local development.
+9. Test `/developer`: upload the synthetic sample, record, infer, confirm, execute, download results, and create a Bob package. Test `/weather` against real Open-Meteo as well.
+
+**Production routes** share the final HTTPS origin:
+
+| Route | Purpose |
+|---|---|
+| `/` | WatchMyWork frontend |
+| `/developer` | Bundled developer test portal |
+| `/weather` | Live Open-Meteo weather demo |
+| `/health` | Health check |
+| `/docs` | FastAPI documentation |
+
+Existing API routes such as `/datasets`, `/demos`, `/workflows`, and `/runs` are preserved. Production frontend requests use relative URLs. Demo assets use `/demo-static/assets/`, separate from frontend `/assets/`. Direct refresh works for both demos. Local URLs remain those listed in **Local URLs** above.
+
+SQLite (including checkpoints) and generated Bob packages live on `/data`; parent directories are created automatically. Static files and source remain in the image. Debug files are not publicly served; the existing package endpoint returns the server path. Downloading a package for Bob IDE requires private access to the volume. `bob_sessions/` remains committed hackathon evidence.
+
+This remains a shared hackathon workspace without user authentication: public visitors can access workspace APIs and use the server's model quota. Host/CORS validation and confirmation are not access control. Use synthetic data only; add access control before sensitive or multi-user use. In hosted mode spreadsheet data and browser execution live on Railway, while inference still receives only stripped semantic metadata. Changing domains requires regenerating the extension and recording new workflows because saved workflow URLs are strictly validated. Free-model availability and Open-Meteo connectivity remain external dependencies.
+
+Optional local image check (Docker required):
+
+```powershell
+docker build -t watchmywork:railway .
+```
+
+The image installs the locked Python dependencies and their matching Chromium using [Playwright's browser installation procedure](https://playwright.dev/python/docs/browsers). Railway deployment settings follow its [configuration reference](https://docs.railway.com/config-as-code/reference).
+
+---
+
 ## Validation
 
 Run from the repository root:

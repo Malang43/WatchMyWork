@@ -16,8 +16,9 @@ def uid():
 
 @contextmanager
 def connect():
-    DATA.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(DATA / 'watchmywork.sqlite3', timeout=30)
+    database = Path(os.environ['DATABASE_PATH']) if os.getenv('DATABASE_PATH') else DATA / 'watchmywork.sqlite3'
+    database.parent.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(database, timeout=30)
     conn.row_factory = sqlite3.Row
     try:
         conn.execute('PRAGMA journal_mode=WAL')

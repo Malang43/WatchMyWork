@@ -1,9 +1,11 @@
-export const API = 'http://127.0.0.1:8000';
+export const API = import.meta.env.PROD ? '' : 'http://127.0.0.1:8000';
+export const DEMO = import.meta.env.PROD ? '/weather' : 'http://127.0.0.1:5173/';
+export const DEVELOPER = import.meta.env.PROD ? '/developer' : 'http://127.0.0.1:5173/developer';
 export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
   let response: Response;
   try {
     response = await fetch(API + path, { ...init, headers: { 'X-WatchMyWork': 'local-demo', ...(init.body instanceof FormData ? {} : { 'Content-Type': 'application/json' }), ...init.headers }, signal: init.signal ?? AbortSignal.timeout(135000) });
-  } catch { throw new Error('The local backend is not responding. Start it and try again. Your saved work is safe.'); }
+  } catch { throw new Error('The backend is not responding. Try again shortly. Your saved work is safe.'); }
   if (!response.ok) {
     const body = await response.json().catch(() => ({}));
     throw new Error(typeof body.detail === 'string' ? body.detail : 'Please check the selected columns and workflow fields, then try again.');

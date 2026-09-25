@@ -3,7 +3,7 @@ import threading
 import time
 from urllib.parse import urlparse, parse_qs
 from playwright.sync_api import sync_playwright, TimeoutError as BrowserTimeout, Error as BrowserError
-from . import storage as store
+from . import storage as store, config
 from .schema import Workflow, MOCK_URL, row_key, valid_coordinates, valid_temperature, developer
 
 LOCK = threading.RLock()
@@ -15,6 +15,8 @@ def allowed_url(url, weather=False):
     if weather and parts.scheme == 'https' and parts.hostname == 'api.open-meteo.com' and parts.port in (None, 443) and parts.path == '/v1/forecast' and not parts.username and not parts.password:
         query = parse_qs(parts.query)
         return set(query) == {'latitude', 'longitude', 'current'} and query['current'] == ['temperature_2m'] and len(query['latitude']) == len(query['longitude']) == 1 and valid_coordinates([query['latitude'][0], query['longitude'][0]])
+    if config.PRODUCTION:
+        return bool(config.PUBLIC_ORIGIN) and urlparse(config.PUBLIC_ORIGIN).netloc == parts.netloc and parts.scheme == 'https' and not parts.username and not parts.password and (parts.path in ('/developer', '/weather') or parts.path.startswith('/demo-static/assets/'))
     return parts.scheme in ('http', 'ws') and parts.hostname == '127.0.0.1' and parts.port == 5173 and not parts.username and not parts.password
 
 def start(run_id):

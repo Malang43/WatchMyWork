@@ -1,0 +1,62 @@
+{
+  "mode": "developer",
+  "expected_column": "Expected",
+  "status_column": "Status",
+  "input_columns": [
+    "Email",
+    "Password"
+  ],
+  "input_column": "Email",
+  "destination_column": "Actual",
+  "workflow_name": "Learned login test",
+  "goal": "Run browser tests and compare expected results",
+  "url": "https://deployment.example/developer",
+  "loop": "for_each_populated_row",
+  "steps": [
+    {
+      "action": "fill",
+      "target": "#email-input",
+      "value": "{{row.Email}}",
+      "save_as": null,
+      "column": null
+    },
+    {
+      "action": "fill",
+      "target": "#password-input",
+      "value": "{{row.Password}}",
+      "save_as": null,
+      "column": null
+    },
+    {
+      "action": "click",
+      "target": "#login-button",
+      "value": null,
+      "save_as": null,
+      "column": null
+    },
+    {
+      "action": "wait",
+      "target": "#login-result",
+      "value": null,
+      "save_as": null,
+      "column": null
+    },
+    {
+      "action": "extract",
+      "target": "#login-result",
+      "value": null,
+      "save_as": "actual",
+      "column": null
+    },
+    {
+      "action": "write_spreadsheet",
+      "target": null,
+      "value": "{{actual}}",
+      "save_as": null,
+      "column": "Actual"
+    }
+  ],
+  "exceptions": {
+    "no_result": "manual_review"
+  }
+}

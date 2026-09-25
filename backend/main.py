@@ -1,6 +1,10 @@
 import io
 import json
 import os
+import re
+from urllib.parse import urlsplit
+from fastapi.staticfiles import StaticFiles
+from . import config
 import threading
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -22,12 +26,19 @@ async def lifespan(app):
     yield
 
 app = FastAPI(title='WatchMyWork Local API', lifespan=lifespan)
-app.add_middleware(CORSMiddleware, allow_origins=['http://127.0.0.1:5174'], allow_origin_regex=r'chrome-extension://[a-p]{32}', allow_methods=['GET', 'POST', 'PUT'], allow_headers=['Content-Type', 'X-WatchMyWork'])
+app.add_middleware(CORSMiddleware, allow_origins=[config.PUBLIC_ORIGIN] if config.PRODUCTION and config.PUBLIC_ORIGIN else ['http://127.0.0.1:5174'] if not config.PRODUCTION else [], allow_origin_regex=r'chrome-extension://[a-p]{32}', allow_methods=['GET', 'POST', 'PUT'], allow_headers=['Content-Type', 'X-WatchMyWork'])
 
 @app.middleware('http')
 async def local_only(request: Request, call_next):
-    if request.headers.get('host', '').split(':')[0] not in ('127.0.0.1', 'localhost', 'testserver'):
-        return JSONResponse({'detail': 'Only local requests are allowed'}, status_code=403)
+    host = request.url.hostname
+    allowed_hosts = {urlsplit(config.PUBLIC_ORIGIN).hostname} if config.PRODUCTION else {'127.0.0.1', 'localhost', 'testserver'}
+    # Railway probes use their own Host; only the read-only health endpoint is exempt.
+    if host not in allowed_hosts and not (config.PRODUCTION and request.url.path == '/health' and request.method in ('GET', 'HEAD')):
+        return JSONResponse({'detail': 'Unrecognized application host'}, status_code=403)
+    origin = request.headers.get('origin')
+    allowed_origins = {config.PUBLIC_ORIGIN} if config.PRODUCTION else {'http://127.0.0.1:5174'}
+    if origin and origin not in allowed_origins and not re.fullmatch(r'chrome-extension://[a-p]{32}', origin):
+        return JSONResponse({'detail': 'Unrecognized application origin'}, status_code=403)
     if request.method in ('POST', 'PUT', 'DELETE') and request.headers.get('X-WatchMyWork') != 'local-demo':
         return JSONResponse({'detail': 'Missing local application header'}, status_code=403)
     response = await call_next(request)
@@ -73,7 +84,7 @@ def create_workflow(plan, request, demos, source, metric_id=None):
 
 @app.get('/health')
 def health():
-    return {'ok': True, 'model': MODEL, 'api_key_configured': bool(os.getenv('OPENROUTER_API_KEY')), 'mock_url': 'http://127.0.0.1:5173/'}
+    return {'ok': True, 'model': MODEL, 'api_key_configured': bool(os.getenv('OPENROUTER_API_KEY')), 'mock_url': config.WEATHER_URL}
 
 @app.get('/sample')
 def sample():
@@ -171,8 +182,8 @@ def record_events(item_id: str, batch: EventBatch):
         click_target = '#login-button' if dev else WEATHER_CLICK
         result_target = '#login-result' if dev else WEATHER_RESULT
         for event in batch.events:
-            targets = list(bindings) if event.action in ('fill', 'focus') else [click_target if weather else TARGETS['click']] if event.action == 'click' else [result_target if weather else TARGETS['extract']] if event.action in ('wait', 'extract') else ['http://127.0.0.1:5173/developer' if dev else 'http://127.0.0.1:5173/']
-            if event.url != ('http://127.0.0.1:5173/developer' if dev else 'http://127.0.0.1:5173/') or event.target not in targets or (event.action == 'wait' and not weather):
+            targets = list(bindings) if event.action in ('fill', 'focus') else [click_target if weather else TARGETS['click']] if event.action == 'click' else [result_target if weather else TARGETS['extract']] if event.action in ('wait', 'extract') else [config.DEVELOPER_URL if dev else config.WEATHER_URL]
+            if event.url != (config.DEVELOPER_URL if dev else config.WEATHER_URL) or event.target not in targets or (event.action == 'wait' and not weather):
                 raise HTTPException(422, 'Record only supported elements on the local mock site')
             data = event.model_dump()
             data['label'] = bindings.get(event.target) or ('Login' if dev else 'Check Weather' if weather else 'Check Status') if event.action == 'click' else bindings.get(event.target) or ('Login result' if dev else 'Temperature result' if weather else 'Result')
@@ -414,3 +425,19 @@ def bob_package(item_id: str):
     if not developer(item['plan']) or item['state'] not in ('completed', 'stopped'):
         raise HTTPException(409, 'Finish the developer test run first')
     return {'path': package(item, require('dataset', item['dataset_id']), store.results(item_id))}
+
+
+# Register static routes after API routes. No catch-all: unknown API/private paths
+# remain 404, and only built assets are served (never source or runtime storage).
+if config.PRODUCTION:
+    app.mount('/assets', StaticFiles(directory=config.FRONTEND_DIST / 'assets'), name='frontend-assets')
+    app.mount('/demo-static/assets', StaticFiles(directory=config.DEMO_DIST / 'assets'), name='demo-assets')
+
+    @app.get('/', include_in_schema=False)
+    def frontend_page():
+        return FileResponse(config.FRONTEND_DIST / 'index.html')
+
+    @app.get('/developer', include_in_schema=False)
+    @app.get('/weather', include_in_schema=False)
+    def demo_page():
+        return FileResponse(config.DEMO_DIST / 'index.html')

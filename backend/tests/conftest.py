@@ -5,6 +5,7 @@ from backend.main import app
 
 @pytest.fixture
 def client(tmp_path, monkeypatch):
+    monkeypatch.delenv('DATABASE_PATH', raising=False)
     monkeypatch.setattr(storage, 'DATA', tmp_path)
     with TestClient(app, headers={'X-WatchMyWork': 'local-demo'}) as client:
         yield client

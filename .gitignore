@@ -15,3 +15,5 @@ test-results/
 playwright-report/
 
 bob_debug_package/
+
+extension-production/

@@ -1,5 +1,5 @@
 ﻿(() => {
-  if (location.origin !== 'http://127.0.0.1:5173' || !['/', '/developer'].includes(location.pathname)) return;
+  if (location.origin !== WATCHMYWORK.demo || ![WATCHMYWORK.weather, '/developer'].includes(location.pathname)) return;
   const dev = location.pathname === '/developer';
   let demo = null, pending = [], sending = false, saved = false, submitted = false, captured = false;
   let lastResult = '', previousText = '', resultChanged = false, lastValues = {}, clickPending = false;
@@ -15,7 +15,7 @@
     panel.dataset.recording = demo?.id || ''; panel.dataset.state = demo ? 'recording' : saved ? 'saved' : 'ready';
     show(demo ? dev ? 'Recording · Fill Email and Password, click Login, and wait for the result.' : '\u25cf Recording \u00b7 Enter Latitude and Longitude, click Check Weather, and wait for the temperature result.' : saved ? dev ? '✓ Test demonstration captured' : `\u2713 Demonstration saved \u00b7 Temperature captured: ${lastResult}` : 'WatchMyWork ready · Start Recording in the main app.');
   }
-  function event(action, target, extra = {}) { if (!demo) return; pending.push({ action, target, url: location.href, ...extra }); void flush(); }
+  function event(action, target, extra = {}) { if (!demo) return; pending.push({ action, target, url: location.origin + location.pathname, ...extra }); void flush(); }
   async function flush() {
     if (sending || !pending.length || !demo) return;
     sending = true; const batch = pending.splice(0, 50); let retry = false;
@@ -69,7 +69,7 @@
       if (next?.id !== demo?.id) {
         demo = next; pending = []; lastValues = {}; submitted = false; captured = false;
         if (demo) { saved = false; lastResult = ''; }
-        ready(); if (demo) event('navigate', location.href, { label: document.title, role: 'document' });
+        ready(); if (demo) event('navigate', location.origin + location.pathname, { label: document.title, role: 'document' });
       } else if (!demo && panel.dataset.state !== 'incomplete') ready();
     } catch { show('Extension disconnected. Reload this tab to reconnect.'); }
   }

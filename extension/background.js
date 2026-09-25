@@ -1,7 +1,11 @@
-const API = 'http://127.0.0.1:8000';
+importScripts('config.js');
+const API = WATCHMYWORK.api;
+function trustedDemo(value) {
+  try { const url = new URL(value); return url.origin === WATCHMYWORK.demo && [WATCHMYWORK.weather, '/developer'].includes(url.pathname); } catch { return false; }
+}
 let queue = Promise.resolve();
 chrome.runtime.onMessage.addListener((message, sender, respond) => {
-  const trusted = sender.id === chrome.runtime.id && (sender.url?.startsWith(chrome.runtime.getURL('')) || sender.url?.startsWith('http://127.0.0.1:5173/'));
+  const trusted = sender.id === chrome.runtime.id && (sender.url?.startsWith(chrome.runtime.getURL('')) || trustedDemo(sender.url));
   if (!trusted) return false;
   let path;
   let options = {};
@@ -21,7 +25,7 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
       const data = await response.json();
       respond(response.ok ? { ok: true, data } : { ok: false, error: typeof data.detail === 'string' ? data.detail : 'Recording could not be saved.' });
     } catch {
-      respond({ ok: false, error: 'Local backend is unavailable. Start it, then try again.' });
+      respond({ ok: false, error: 'Backend is unavailable. Try again shortly.' });
     }
   });
   return true;
