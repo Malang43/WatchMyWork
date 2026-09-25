@@ -2,12 +2,13 @@
   "manifest_version": 3,
   "name": "WatchMyWork \u2014 Teach Mode",
   "version": "0.1.0",
-  "description": "Record semantic demonstrations on the local WatchMyWork mock site.",
+  "description": "Record semantic demonstrations on the bundled WatchMyWork local and Railway demo sites.",
   "permissions": [
     "storage"
   ],
   "host_permissions": [
-    "http://127.0.0.1:8000/*"
+    "http://127.0.0.1:8000/*",
+    "https://watchmywork-production.up.railway.app/*"
   ],
   "background": {
     "service_worker": "background.js"
@@ -19,7 +20,9 @@
   "content_scripts": [
     {
       "matches": [
-        "http://127.0.0.1:5173/*"
+        "http://127.0.0.1:5173/*",
+        "https://watchmywork-production.up.railway.app/developer*",
+        "https://watchmywork-production.up.railway.app/weather*"
       ],
       "js": [
         "config.js",

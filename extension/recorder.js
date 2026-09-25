@@ -1,5 +1,6 @@
 ﻿(() => {
-  if (location.origin !== WATCHMYWORK.demo || ![WATCHMYWORK.weather, '/developer'].includes(location.pathname)) return;
+  const production = location.origin === WATCHMYWORK.production;
+  if (production ? !['/weather', '/developer'].includes(location.pathname) : location.origin !== WATCHMYWORK.demo || ![WATCHMYWORK.weather, '/developer'].includes(location.pathname)) return;
   const dev = location.pathname === '/developer';
   let demo = null, pending = [], sending = false, saved = false, submitted = false, captured = false;
   let lastResult = '', previousText = '', resultChanged = false, lastValues = {}, clickPending = false;
@@ -28,7 +29,7 @@
         saved = completion.data.state === 'complete'; demo = null; pending = []; ready();
         if (!saved) { panel.dataset.state = 'incomplete'; show('The example did not match the selected row. Start another demonstration using that row’s inputs.'); }
       }
-    } catch { retry = true; pending.unshift(...batch); show('Save not confirmed. Check the local backend; we will retry.'); }
+    } catch { retry = true; pending.unshift(...batch); show('Save not confirmed. Check the WatchMyWork backend; we will retry.'); }
     finally { sending = false; if (!retry && pending.length) void flush(); }
   }
   function recordValue(input) {

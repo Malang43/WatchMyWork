@@ -1,11 +1,17 @@
 importScripts('config.js');
-const API = WATCHMYWORK.api;
-function trustedDemo(value) {
-  try { const url = new URL(value); return url.origin === WATCHMYWORK.demo && [WATCHMYWORK.weather, '/developer'].includes(url.pathname); } catch { return false; }
+function demoApi(value) {
+  try {
+    const url = new URL(value);
+    if (url.origin === WATCHMYWORK.production && ['/developer', '/weather'].includes(url.pathname)) return url.origin;
+    if (url.origin === WATCHMYWORK.demo && [WATCHMYWORK.weather, '/developer'].includes(url.pathname)) return WATCHMYWORK.api;
+  } catch { /* Reject unrecognized senders. */ }
+  return null;
 }
 let queue = Promise.resolve();
 chrome.runtime.onMessage.addListener((message, sender, respond) => {
-  const trusted = sender.id === chrome.runtime.id && (sender.url?.startsWith(chrome.runtime.getURL('')) || trustedDemo(sender.url));
+  const popup = sender.url?.startsWith(chrome.runtime.getURL(''));
+  const API = popup ? (message.production && WATCHMYWORK.production ? WATCHMYWORK.production : WATCHMYWORK.api) : demoApi(sender.url);
+  const trusted = sender.id === chrome.runtime.id && API;
   if (!trusted) return false;
   let path;
   let options = {};

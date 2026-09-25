@@ -16,7 +16,7 @@ const manifest = JSON.parse(readFileSync(join(root, 'manifest.json'), 'utf8'));
 manifest.name = 'WatchMyWork — Production Teach Mode';
 manifest.description = 'Record demonstrations on the configured WatchMyWork developer and weather demos.';
 manifest.host_permissions = [origin + '/*'];
-manifest.content_scripts[0].matches = [origin + '/developer', origin + '/weather'];
+manifest.content_scripts[0].matches = [origin + '/developer*', origin + '/weather*'];
 for (const file of ['background.js', 'recorder.js', 'popup.html', 'popup.js']) copyFileSync(join(root, file), join(output, file));
 writeFileSync(join(output, 'manifest.json'), JSON.stringify(manifest, null, 2) + '\n');
 writeFileSync(join(output, 'config.js'), 'globalThis.WATCHMYWORK = Object.freeze(' + JSON.stringify({ api: origin, app: origin + '/', demo: origin, weather: '/weather' }) + ');\n');

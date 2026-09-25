@@ -1,5 +1,6 @@
 import io
 import json
+import logging
 import os
 import re
 from urllib.parse import urlsplit
@@ -19,6 +20,7 @@ from .sheets import read_sheet, export_sheet
 DEMO_LOCK = threading.RLock()
 INFER_BUSY = set()
 INFER_PROGRESS = {}
+logger = logging.getLogger('uvicorn.error')
 
 @asynccontextmanager
 async def lifespan(app):
@@ -170,6 +172,7 @@ def demonstrated_result(demo):
 def record_events(item_id: str, batch: EventBatch):
     with DEMO_LOCK:
         demo = require('demo', item_id)
+        logger.info('recording received demonstration_id=%s event_count=%d', demo['id'], len(batch.events))
         if demo['state'] != 'recording':
             if demo['state'] == 'complete':
                 return {'recorded': len(demo['events']), 'state': 'complete'}
@@ -196,6 +199,7 @@ def record_events(item_id: str, batch: EventBatch):
             if result:
                 demo.update(state='complete', result=result)
         store.put('demo', demo)
+        logger.info('demonstration saved demonstration_id=%s state=%s', demo['id'], demo['state'])
         return {'recorded': len(demo['events']), 'state': demo['state']}
 
 @app.post('/demos/{item_id}/stop')
@@ -206,7 +210,9 @@ def stop_demo(item_id: str):
             return demo
         result = demonstrated_result(demo)
         demo.update(state='complete' if result else 'incomplete', result=result)
-        return store.put('demo', demo)
+        store.put('demo', demo)
+        logger.info('demonstration saved demonstration_id=%s state=%s', demo['id'], demo['state'])
+        return demo
 
 @app.get('/inference/{dataset_id}/status')
 def inference_status(dataset_id: str):
@@ -220,6 +226,7 @@ async def infer_workflow(request: InferRequest):
     if request.dataset_id in INFER_BUSY:
         raise HTTPException(409, 'Analysis is already running for this spreadsheet')
     INFER_BUSY.add(request.dataset_id)
+    logger.info('inference request started demonstration_ids=%s', ','.join(d['id'] for d in demos))
     try:
         def progress(attempt):
             INFER_PROGRESS[request.dataset_id] = {'attempt': attempt, 'state': 'analyzing'}

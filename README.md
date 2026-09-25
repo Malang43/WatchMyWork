@@ -412,15 +412,15 @@ Deploy one Docker service with one public domain and one persistent volume. The 
    Railway supplies `PORT`. The Docker image sets `WATCHMYWORK_PRODUCTION=1`. Its start command is `python -m backend`, which runs one Uvicorn worker on `0.0.0.0:$PORT` (8000 if unset). Keep one service replica and one worker for the executor locks and SQLite.
 5. Deploy when ready. This repository preparation does not deploy anything.
 6. Generate the public domain. The backend uses Railway's `RAILWAY_PUBLIC_DOMAIN`; restart/redeploy after assigning the domain. For a custom domain or an explicit override, set `PUBLIC_ORIGIN` to the exact final HTTPS origin, without a path or trailing slash. Recording/execution require this origin; `/health` can pass before the domain exists.
-7. Generate a production extension using the actual domain (replace the example argument; no placeholder is included in a manifest):
+7. The checked-in `extension/` supports both localhost and `https://watchmywork-production.up.railway.app`. It selects the backend from the demo tab's trusted origin. For a different deployment or a production-only extension, generate one using the actual domain:
 
    ```powershell
    node extension/configure.mjs https://YOUR_FINAL_RAILWAY_DOMAIN
    node extension/validate.mjs ../extension-production
    ```
 
-   This creates `extension-production/` with only that host permission and `/developer` and `/weather` content-script matches. It leaves the local `extension/` intact. No recorder logic needs editing.
-8. In `chrome://extensions`, load the generated `extension-production/` folder, or reload it after regenerating. Refresh the demo tab. Use the original `extension/` for local development.
+   This creates `extension-production/` with only that host permission and `/developer*` and `/weather*` content-script matches. The recorder still accepts only the exact bundled demo paths. It leaves `extension/` intact.
+8. In `chrome://extensions`, reload your unpacked `extension/`, or regenerate and reload `extension-production/` if using that folder. Refresh both app and demo tabs. Enable only one WatchMyWork recorder extension to avoid duplicate recordings.
 9. Test `/developer`: upload the synthetic sample, record, infer, confirm, execute, download results, and create a Bob package. Test `/weather` against real Open-Meteo as well.
 
 **Production routes** share the final HTTPS origin:

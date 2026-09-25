@@ -1,1 +1,1 @@
-globalThis.WATCHMYWORK = Object.freeze({ api: 'http://127.0.0.1:8000', app: 'http://127.0.0.1:5174/', demo: 'http://127.0.0.1:5173', weather: '/' });
+globalThis.WATCHMYWORK = Object.freeze({ api: 'http://127.0.0.1:8000', app: 'http://127.0.0.1:5174/', demo: 'http://127.0.0.1:5173', weather: '/', production: 'https://watchmywork-production.up.railway.app' });
