@@ -431,7 +431,23 @@ def bob_package(item_id: str):
     item = require('run', item_id)
     if not developer(item['plan']) or item['state'] not in ('completed', 'stopped'):
         raise HTTPException(409, 'Finish the developer test run first')
-    return {'path': package(item, require('dataset', item['dataset_id']), store.results(item_id))}
+    package(item, require('dataset', item['dataset_id']), store.results(item_id))
+    return {'ready': True}
+
+
+@app.get('/runs/{item_id}/debug/package/download')
+def download_bob_package(item_id: str):
+    from .developer import package_zip
+    item = require('run', item_id)
+    if not developer(item['plan']) or item['state'] not in ('completed', 'stopped'):
+        raise HTTPException(409, 'Finish the developer test run first')
+    try:
+        archive = package_zip(item_id)
+    except (OSError, ValueError):
+        raise HTTPException(404, 'Bob Debug Package unavailable. Prepare the package first.') from None
+    return StreamingResponse(archive, media_type='application/zip', headers={
+        'Content-Disposition': f'attachment; filename="bob-debug-package-{item_id}.zip"',
+    })
 
 
 # Register static routes after API routes. No catch-all: unknown API/private paths

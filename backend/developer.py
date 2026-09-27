@@ -1,10 +1,34 @@
 ﻿"""Local, data-driven Playwright export and honest IBM Bob handoff."""
 import json
 import os
+import io
+import re
+import zipfile
 from pathlib import Path
 from .schema import Workflow, developer
 
 ROOT = Path(__file__).resolve().parents[1]
+
+
+def package_zip(run_id):
+    # IDs are generated server-side; never accept a filesystem path from a client.
+    if not re.fullmatch(r'[0-9a-f]{32}', run_id):
+        raise ValueError('Invalid run ID')
+    root = Path(os.getenv('BOB_DEBUG_DIR', str(ROOT / 'bob_debug_package'))).resolve()
+    directory = root / run_id
+    if directory.is_symlink() or directory.resolve() != directory:
+        raise ValueError('Invalid package directory')
+    names = ('generated_test.spec.py', 'test_cases.json', 'failed_tests.json',
+             'workflow.json', 'runtime_logs.json', 'selectors.json', 'failure_summary.md')
+    out = io.BytesIO()
+    with zipfile.ZipFile(out, 'w', zipfile.ZIP_DEFLATED) as archive:
+        for name in names:
+            path = directory / name
+            if path.is_symlink() or path.resolve() != path:
+                raise ValueError('Invalid package file')
+            archive.writestr(name, path.read_bytes())
+    out.seek(0)
+    return out
 
 def generate(plan):
     plan = Workflow.model_validate(plan)

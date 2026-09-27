@@ -65,3 +65,52 @@ def test_runtime_error_continues_and_blank_duplicate_execute(client, monkeypatch
     assert outcomes[1]['value'] == ' Login successful '
     assert storage.get('run', run['id'])['state'] == 'completed'
     assert 'private diagnostic' not in json.dumps(outcomes)
+
+
+def test_bob_package_download(client, monkeypatch, tmp_path):
+    import zipfile
+    from backend import storage
+    monkeypatch.setenv('BOB_DEBUG_DIR', str(tmp_path / 'packages'))
+    row = {'Email': 'local@example.com', 'Password': 'synthetic', 'Expected Result': 'yes', 'Actual Result': '', 'Status': ''}
+    data = storage.put('dataset', {'id': storage.uid(), 'columns': list(row), 'rows': [row]})
+    run = storage.put('run', {'id': storage.uid(), 'dataset_id': data['id'], 'plan': demonstrated_plan(Mapping(**MAPPING), 'Actual Result').model_dump(), 'state': 'completed'})
+    url = f"/runs/{run['id']}/debug/package"
+    assert client.get(url + '/download').status_code == 404
+    assert client.post(url).json() == {'ready': True}
+    directory = tmp_path / 'packages' / run['id']
+    original = {p.name: p.read_bytes() for p in directory.iterdir()}
+    # Download the already prepared snapshot, even if the underlying dataset changes.
+    storage.put('dataset', {**data, 'rows': []})
+    response = client.get(url + '/download')
+    assert response.status_code == 200
+    assert response.headers['content-type'] == 'application/zip'
+    assert response.headers['content-disposition'] == f'attachment; filename="bob-debug-package-{run["id"]}.zip"'
+    assert response.headers['cache-control'] == 'no-store'
+    with zipfile.ZipFile(io.BytesIO(response.content)) as archive:
+        assert len(archive.namelist()) == 7
+        assert {name: archive.read(name) for name in archive.namelist()} == original
+    assert {p.name: p.read_bytes() for p in directory.iterdir()} == original
+    other = storage.put('run', {**run, 'id': storage.uid()})
+    assert client.get(f"/runs/{other['id']}/debug/package/download").status_code == 404
+    assert client.get('/runs/' + '0' * 32 + '/debug/package/download').status_code == 404
+    assert client.get(url + '/download', headers={'Origin': 'https://attacker.invalid'}).status_code == 403
+    storage.put('run', {**run, 'state': 'running'})
+    assert client.get(url + '/download').status_code == 409
+    storage.put('run', {**run, 'plan': {**run['plan'], 'mode': 'lookup'}})
+    assert client.get(url + '/download').status_code == 409
+
+
+def test_bob_zip_rejects_paths_and_links(tmp_path, monkeypatch):
+    from backend.developer import package_zip
+    monkeypatch.setenv('BOB_DEBUG_DIR', str(tmp_path))
+    for bad in ('../outside', '..\\outside', '/absolute', 'C:\\absolute'):
+        with pytest.raises(ValueError):
+            package_zip(bad)
+    run_id = 'a' * 32
+    directory = tmp_path / run_id
+    directory.mkdir()
+    # Simulate a redirected package file without requiring Windows symlink privileges.
+    resolve = Path.resolve
+    monkeypatch.setattr(Path, 'resolve', lambda p, *a, **kw: tmp_path / 'outside' if p.name == 'generated_test.spec.py' else resolve(p, *a, **kw))
+    with pytest.raises(ValueError):
+        package_zip(run_id)
