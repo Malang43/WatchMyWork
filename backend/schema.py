@@ -136,6 +136,12 @@ class Event(StrictModel):
     role: str = Field(default='', max_length=50)
     value: str = Field(default='', max_length=500)
     text: str = Field(default='', max_length=500)
+    accessible_name: str = Field(default='', max_length=150)
+    placeholder: str = Field(default='', max_length=150)
+    element_type: str = Field(default='', max_length=30)
+    input_type: str = Field(default='', max_length=30)
+    context: str = Field(default='', max_length=200)
+    page_title: str = Field(default='', max_length=150)
     url: str = Field(default=MOCK_URL, max_length=2048)
 
     @model_validator(mode='after')
@@ -153,6 +159,7 @@ class InferRequest(Mapping):
 class RunRequest(StrictModel):
     workflow_id: str
     dataset_id: str
+    recovery_demo: bool = False
 
 class Resolution(StrictModel):
     value: str = Field(min_length=1, max_length=200)

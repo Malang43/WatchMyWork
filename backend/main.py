@@ -12,7 +12,7 @@ from pathlib import Path
 from fastapi import FastAPI, File, HTTPException, UploadFile, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse, FileResponse
-from . import storage as store, executor
+from . import storage as store, executor, recovery
 from .inference import infer, InferenceError, InferenceUnavailable, compile_demonstration, MODEL
 from .schema import Workflow, TeachRequest, EventBatch, InferRequest, RunRequest, Resolution, TARGETS, WEATHER_CLICK, WEATHER_RESULT, columns_of, input_bindings, row_key, valid_coordinates, valid_temperature, demonstrated_plan, developer
 from .sheets import read_sheet, export_sheet
@@ -297,10 +297,14 @@ def create_run(request: RunRequest):
             raise HTTPException(409, 'Finish or stop the existing run before starting another')
         dataset = require('dataset', request.dataset_id)
         plan = Workflow.model_validate(workflow['plan'])
+        if request.recovery_demo and not developer(plan):
+            raise HTTPException(422, 'The recovery demo requires a developer workflow')
         validate_test_columns(dataset, plan)
         validate_columns(dataset, plan.input_columns, plan.destination_column)
         run = store.put('run', {'id': store.uid(), 'workflow_id': workflow['id'], 'dataset_id': dataset['id'], 'plan': plan.model_dump(), 'state': 'running', 'total': len(dataset['rows']), 'created_at': store.now(), 'finished_at': None, 'retries': 0, 'retrying': False, 'error': '', 'demonstrations': len(workflow['demo_ids']), 'human_corrections': 0})
         # Completed teaching examples belong to this exact dataset only.
+        run['recovery_demo'] = request.recovery_demo
+        store.put('run', run)
         if not developer(plan) and workflow['dataset_id'] == dataset['id']:
             first_occurrence = {}
             for index, row in enumerate(dataset['rows']):
@@ -325,6 +329,32 @@ def runs():
 def run(item_id: str):
     return executor.summary(require('run', item_id))
 
+
+@app.get('/runs/{item_id}/recoveries')
+def run_recoveries(item_id: str):
+    require('run', item_id)
+    return recovery.history(item_id)
+
+
+@app.post('/runs/{item_id}/recoveries/{recovery_id}/{decision}')
+def decide_recovery(item_id: str, recovery_id: str, decision: str):
+    if decision not in ('approve', 'reject'):
+        raise HTTPException(404, 'Unknown recovery decision')
+    with executor.LOCK:
+        run = require('run', item_id)
+        entry = require('recovery', recovery_id)
+        if entry['run_id'] != item_id or entry['state'] != 'pending' or run['state'] not in ('running', 'paused'):
+            raise HTTPException(409, 'This proposal is no longer awaiting approval')
+        entry['state'] = 'approved' if decision == 'approve' else 'rejected'
+        store.put('recovery', entry)
+        run['pending_recovery'] = None
+        if decision == 'approve':
+            run['state'] = 'running'
+        store.put('run', run)
+        if decision == 'approve':
+            executor.start(item_id)
+        return entry
+
 @app.post('/runs/{item_id}/{command}')
 def control_run(item_id: str, command: str):
     if command not in ('pause', 'resume', 'stop'):
@@ -338,6 +368,11 @@ def control_run(item_id: str, command: str):
         item['state'] = {'pause': 'paused', 'resume': 'running', 'stop': 'stopped'}[command]
         if command == 'stop':
             item['finished_at'] = store.now()
+            for entry in recovery.history(item_id):
+                if entry['state'] in ('pending', 'approved', 'acted'):
+                    entry['state'] = 'cancelled'
+                    store.put('recovery', entry)
+            item['pending_recovery'] = None
         item['error'] = ''
         store.put('run', item)
         if command == 'resume':
@@ -367,7 +402,7 @@ def resolve(item_id: str, index: int, request: Resolution):
 @app.get('/runs/{item_id}/download')
 def download(item_id: str):
     item = require('run', item_id)
-    data = export_sheet(require('dataset', item['dataset_id']), item['plan']['destination_column'], store.results(item_id), item['plan'].get('status_column'))
+    data = export_sheet(require('dataset', item['dataset_id']), item['plan']['destination_column'], store.results(item_id), item['plan'].get('status_column'), recovery.history(item_id))
     return StreamingResponse(io.BytesIO(data), media_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', headers={'Content-Disposition': 'attachment; filename="watchmywork-results.xlsx"'})
 
 @app.get('/metrics')
@@ -461,6 +496,7 @@ if config.PRODUCTION:
         return FileResponse(config.FRONTEND_DIST / 'index.html')
 
     @app.get('/developer', include_in_schema=False)
+    @app.get('/developer/sign-in', include_in_schema=False)
     @app.get('/weather', include_in_schema=False)
     def demo_page():
         return FileResponse(config.DEMO_DIST / 'index.html')

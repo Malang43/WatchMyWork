@@ -66,4 +66,4 @@ function App() {
   </main>;
 }
 
-createRoot(document.getElementById('root')!).render(<StrictMode>{location.pathname === '/developer' ? <DeveloperPortal /> : <App />}</StrictMode>);
+createRoot(document.getElementById('root')!).render(<StrictMode>{['/developer', '/developer/sign-in'].includes(location.pathname) ? <DeveloperPortal /> : <App />}</StrictMode>);

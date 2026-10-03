@@ -89,7 +89,7 @@ with sync_playwright() as pw:
         assert client.post('/runs', json=payload).status_code == 409
         app.get_by_role('button', name='Confirm Workflow', exact=True).click()
         with app.expect_response(lambda r: r.url.endswith('/runs') and r.request.method == 'POST') as started:
-            app.get_by_role('button', name='Run Workflow').click()
+            app.get_by_role('button', name='Run Test Suite').click()
         assert started.value.status == 200
         run_id = started.value.json()['id']
         deadline = time.monotonic() + 120

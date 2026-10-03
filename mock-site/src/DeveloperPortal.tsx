@@ -1,6 +1,7 @@
 import { useState } from 'react';
 
 export function DeveloperPortal() {
+  const changed = sessionStorage.getItem('watchmywork-recovery-demo') === '1';
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [result, setResult] = useState('');
@@ -13,7 +14,7 @@ export function DeveloperPortal() {
       setTimeout(() => { setResult(message); setBusy(false); }, 200);
     }}><label htmlFor="email-input">Email</label><input id="email-input" autoComplete="off" value={email} disabled={busy} onChange={e => { setEmail(e.target.value); setResult(''); }} />
       <label htmlFor="password-input">Password</label><input id="password-input" type="password" autoComplete="off" value={password} disabled={busy} onChange={e => { setPassword(e.target.value); setResult(''); }} />
-      <button id="login-button" disabled={busy}>{busy ? 'Checking…' : 'Login'}</button>
+      <button id={changed ? 'sign-in-button' : 'login-button'} disabled={busy}>{busy ? 'Checking…' : changed ? 'Sign In' : 'Login'}</button>
       <output id="login-result" role="status" hidden={!result}>{result}</output></form>
       <p>Synthetic test accounts only. No external authentication service.</p><a href="/">Weather example</a>
     </section></main>;

@@ -37,7 +37,7 @@ def read_sheet(content: bytes, filename: str):
         raise ValueError('A cell exceeds the 10,000 character limit')
     return columns, values
 
-def export_sheet(dataset, output_column, results, status_column=None):
+def export_sheet(dataset, output_column, results, status_column=None, recoveries=None):
     book = Workbook()
     sheet = book.active
     sheet.title = 'Updated Data'
@@ -66,6 +66,16 @@ def export_sheet(dataset, output_column, results, status_column=None):
     for result in results:
         if result['status'] != 'successful':
             audit.append([result['row_index'] + 2, result['status'], result['reason']])
+    if recoveries:
+        recovery_sheet = book.create_sheet('Recoveries')
+        recovery_sheet.append(['Spreadsheet row', 'State', 'Original', 'Replacement', 'Method', 'Confidence', 'Reason'])
+        for entry in recoveries:
+            recovery_sheet.append([entry['row_index'] + 2, entry['state'], entry['original']['name'], (entry.get('candidate') or {}).get('name') or entry.get('navigation', ''), entry['method'], entry['confidence'], entry['reason']])
+    for worksheet in book:
+        for cells in worksheet:
+            for cell in cells:
+                if isinstance(cell.value, str):
+                    cell.data_type = 's'
     out = io.BytesIO()
     book.save(out)
     return out.getvalue()

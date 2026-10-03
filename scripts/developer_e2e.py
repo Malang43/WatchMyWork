@@ -56,7 +56,7 @@ with sync_playwright() as pw:
         expect(page.locator('pre')).to_contain_text('for index, row in enumerate(cases, 1)')
         download = client.get(f"/workflows/{workflow['id']}/test-download")
         directory = ROOT / 'test-results' / 'generated-developer-test'
-        directory.mkdir(exist_ok=True)
+        directory.mkdir(parents=True, exist_ok=True)
         with zipfile.ZipFile(io.BytesIO(download.content)) as archive:
             archive.extractall(directory)
         calls = client.get('/metrics').json()['total_ai_calls']
@@ -80,11 +80,11 @@ with sync_playwright() as pw:
         assert book.active.cell(7, 5).value == 'FAIL'
         expect(page.get_by_role('heading', name='Test Report', exact=True)).to_be_visible()
         page.get_by_role('button', name='Prepare Bob Debug Package').click()
-        expect(page.get_by_text('Package ready:', exact=False)).to_be_visible(timeout=15000)
-        package = ROOT / 'bob_debug_package' / run['id']
-        for name in ['generated_test.spec.py', 'test_cases.json', 'failed_tests.json', 'workflow.json', 'selectors.json', 'runtime_logs.json', 'failure_summary.md']:
-            assert (package / name).is_file(), name
-        assert len(json.loads((package / 'failed_tests.json').read_text())) == 1
+        expect(page.get_by_text('Bob Debug Package ready', exact=True)).to_be_visible(timeout=15000)
+        with zipfile.ZipFile(io.BytesIO(client.get(f"/runs/{run['id']}/debug/package/download").content)) as package:
+            for name in ['generated_test.spec.py', 'test_cases.json', 'failed_tests.json', 'workflow.json', 'selectors.json', 'runtime_logs.json', 'failure_summary.md']:
+                assert name in package.namelist(), name
+            assert len(json.loads(package.read('failed_tests.json'))) == 1
         assert (ROOT / 'bob_sessions' / 'README.md').is_file()
         assert not errors, errors
         page.screenshot(path=str(ROOT / 'test-results' / 'developer-report.png'), full_page=True)

@@ -4,6 +4,7 @@ import time
 from urllib.parse import urlparse, parse_qs
 from playwright.sync_api import sync_playwright, TimeoutError as BrowserTimeout, Error as BrowserError
 from . import storage as store, config
+from . import recovery
 from .schema import Workflow, MOCK_URL, row_key, valid_coordinates, valid_temperature, developer
 
 LOCK = threading.RLock()
@@ -16,7 +17,7 @@ def allowed_url(url, weather=False):
         query = parse_qs(parts.query)
         return set(query) == {'latitude', 'longitude', 'current'} and query['current'] == ['temperature_2m'] and len(query['latitude']) == len(query['longitude']) == 1 and valid_coordinates([query['latitude'][0], query['longitude'][0]])
     if config.PRODUCTION:
-        return bool(config.PUBLIC_ORIGIN) and urlparse(config.PUBLIC_ORIGIN).netloc == parts.netloc and parts.scheme == 'https' and not parts.username and not parts.password and (parts.path in ('/developer', '/weather') or parts.path.startswith('/demo-static/assets/'))
+        return bool(config.PUBLIC_ORIGIN) and urlparse(config.PUBLIC_ORIGIN).netloc == parts.netloc and parts.scheme == 'https' and not parts.username and not parts.password and (parts.path in ('/developer', '/developer/sign-in', '/weather') or parts.path.startswith('/demo-static/assets/'))
     return parts.scheme in ('http', 'ws') and parts.hostname == '127.0.0.1' and parts.port == 5173 and not parts.username and not parts.password
 
 def start(run_id):
@@ -89,18 +90,23 @@ def execute(run_id):
                             if browser is None or not browser.is_connected():
                                 browser = pw.chromium.launch(headless=True)
                                 context = browser.new_context(service_workers='block')
+                                if run.get('recovery_demo'):
+                                    context.add_init_script("sessionStorage.setItem('watchmywork-recovery-demo', '1')")
                                 context.route('**/*', lambda route: route.continue_() if allowed_url(route.request.url, weather) else route.abort())
                                 page = context.new_page()
                                 page.set_default_timeout(7000)
                             if page is None or page.is_closed():
                                 page = browser.contexts[0].new_page()
                                 page.set_default_timeout(7000)
-                            page.goto(plan.url, wait_until='domcontentloaded', timeout=10000)
-                            if page.url != plan.url:
+                            execution_url = store.get('run', run_id).get('recovery_url', plan.url)
+                            if not recovery.safe_navigation(execution_url, plan.url):
+                                raise BrowserError('Invalid recovery URL')
+                            page.goto(execution_url, wait_until='domcontentloaded', timeout=10000)
+                            if page.url != execution_url:
                                 raise BrowserError('Unexpected navigation')
                             for index_of_input, column in enumerate(plan.input_columns):
-                                page.locator(plan.steps[index_of_input].target).fill(row[column] if dev else row[column].strip() if weather else row[column].strip().upper())
-                            page.locator(plan.steps[len(plan.input_columns)].target).click()
+                                recovery.perform(page, run_id, index, plan, plan.steps[index_of_input], dataset, lambda locator: locator.fill(row[column] if dev else row[column].strip() if weather else row[column].strip().upper()))
+                            recovery.perform(page, run_id, index, plan, plan.steps[len(plan.input_columns)], dataset, lambda locator: locator.click())
                             stage = 'result'
                             result = page.locator(plan.steps[-2].target)
                             if weather:
@@ -108,17 +114,31 @@ def execute(run_id):
                                 if page.locator('#weather-result').get_attribute('data-state') == 'error':
                                     raise BrowserTimeout('Weather request failed')
                                 page.locator(plan.steps[3].target).wait_for(state='visible', timeout=15000)
+                                value = result.inner_text().strip()
                             else:
-                                result.wait_for(state='visible')
-                            value = result.inner_text() if dev else result.inner_text().strip()
+                                def extract(locator):
+                                    locator.wait_for(state='visible')
+                                    return locator.inner_text()
+                                value = recovery.perform(page, run_id, index, plan, plan.steps[-2], dataset, extract)
+                                if not dev:
+                                    value = value.strip()
                             if dev:
                                 passed = value.strip().casefold() == row[plan.expected_column].strip().casefold()
                                 store.checkpoint(run_id, index, 'PASS' if passed else 'FAIL', value=value, reason='' if passed else 'Expected and actual results differ', retries=attempt, seconds=time.monotonic() - started)
+                                recovery.verify_row(run_id, index)
                                 break
                             if (not valid_temperature(value)) if weather else (value not in STATUSES or value == 'Not Found'):
                                 store.checkpoint(run_id, index, 'manual_review', reason='Not Found' if value == 'Not Found' else 'Unrecognized or missing result', retries=attempt, seconds=time.monotonic() - started)
                             else:
                                 store.checkpoint(run_id, index, 'successful', value=value, retries=attempt, seconds=time.monotonic() - started)
+                                recovery.verify_row(run_id, index)
+                            break
+                        except recovery.RecoveryNavigate:
+                            if attempt == 1:
+                                store.checkpoint(run_id, index, 'ERROR' if dev else 'failed', reason='Navigation recovery exhausted this row retry budget', retries=attempt, seconds=time.monotonic() - started)
+                            continue
+                        except recovery.RecoveryDeclined:
+                            store.checkpoint(run_id, index, 'ERROR' if dev else 'failed', reason='Recovery rejected or run stopped', retries=attempt, seconds=time.monotonic() - started)
                             break
                         except (BrowserTimeout, BrowserError):
                             if attempt == 0:
@@ -132,6 +152,7 @@ def execute(run_id):
                                 store.checkpoint(run_id, index, 'ERROR' if dev else 'manual_review' if stage == 'result' else 'failed', reason='Result missing after retry' if stage == 'result' else 'Website timeout, missing selector, or browser unavailable', retries=1, seconds=time.monotonic() - started)
                         finally:
                             set_retrying(run_id, False)
+                    recovery.finish_row(run_id, index)
                 with LOCK:
                     current = store.get('run', run_id)
                     if current['state'] != 'stopped':

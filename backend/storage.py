@@ -45,6 +45,10 @@ def init():
         if run['state'] in ('running', 'retrying'):
             run['state'] = 'paused'
             put('run', run)
+    for entry in listing('recovery'):
+        if entry['state'] in ('pending', 'approved', 'acted'):
+            entry.update(state='interrupted', reason='Process restarted; the page must be observed again')
+            put('recovery', entry)
 
 def put(kind, item):
     with connect() as db:

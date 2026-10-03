@@ -21,5 +21,6 @@ if PUBLIC_ORIGIN:
 DEMO_ORIGIN = PUBLIC_ORIGIN if PRODUCTION else 'http://127.0.0.1:5173'
 WEATHER_URL = DEMO_ORIGIN + ('/weather' if PRODUCTION else '/')
 DEVELOPER_URL = DEMO_ORIGIN + '/developer'
+DEVELOPER_RECOVERY_URL = DEMO_ORIGIN + '/developer/sign-in'
 FRONTEND_DIST = ROOT / 'frontend' / 'dist'
 DEMO_DIST = ROOT / 'mock-site' / 'dist'

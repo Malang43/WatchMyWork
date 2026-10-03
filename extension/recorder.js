@@ -16,7 +16,22 @@
     panel.dataset.recording = demo?.id || ''; panel.dataset.state = demo ? 'recording' : saved ? 'saved' : 'ready';
     show(demo ? dev ? 'Recording · Fill Email and Password, click Login, and wait for the result.' : '\u25cf Recording \u00b7 Enter Latitude and Longitude, click Check Weather, and wait for the temperature result.' : saved ? dev ? '✓ Test demonstration captured' : `\u2713 Demonstration saved \u00b7 Temperature captured: ${lastResult}` : 'WatchMyWork ready · Start Recording in the main app.');
   }
-  function event(action, target, extra = {}) { if (!demo) return; pending.push({ action, target, url: location.origin + location.pathname, ...extra }); void flush(); }
+  function event(action, target, extra = {}) {
+    if (!demo) return;
+    const element = target.startsWith('#') ? document.querySelector(target) : null;
+    // Semantic structure only: never read field values into metadata or surrounding text.
+    const clean = text => {
+      let result = String(text || '');
+      for (const value of Object.values(demo.input_values || {})) if (value) result = result.split(String(value)).join('[record]');
+      return result.replace(/\S+@\S+/g, '[private]');
+    };
+    const name = element?.getAttribute('aria-label') || element?.labels?.[0]?.textContent || (element?.tagName === 'BUTTON' ? element.textContent : '') || '';
+    pending.push({ action, target, url: location.origin + location.pathname,
+      accessible_name: clean(name).slice(0,150), placeholder: clean(element?.getAttribute('placeholder')).slice(0,150),
+      element_type: element?.tagName.toLowerCase() || '', input_type: element?.getAttribute('type') || '',
+      context: clean([...(element?.closest('form')?.querySelectorAll('label') || [])].map(e => e.textContent).join(' ')).slice(0,200),
+      page_title: clean(document.title).slice(0,150), ...extra }); void flush();
+  }
   async function flush() {
     if (sending || !pending.length || !demo) return;
     sending = true; const batch = pending.splice(0, 50); let retry = false;

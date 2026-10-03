@@ -61,6 +61,20 @@ Duplicate detection is trimmed/case-insensitive across the original row order. O
 
 ## API families
 
+## Adaptive Recovery Agent
+
+`recovery.py` extends the existing Playwright worker. It tries the confirmed selector first. On a browser action failure it observes a bounded set of visible interactive elements using a fixed, read-only DOM observer. It collects role, accessible name, labels, placeholders, input type and form labels, never input values or arbitrary HTML. Spreadsheet cell values are stripped from semantic metadata before provider requests or recovery persistence.
+
+The agent ranks compatible candidates locally, asks the existing Nemotron model to choose a discovered candidate ID through a strict Pydantic response, and falls back to deterministic semantic ranking when the model is unavailable or invalid. Confidence is a proposal score, not a calibrated probability. A first repair always waits for explicit approval. Playwright re-observes the page after approval, requires a unique matching semantic fingerprint, performs the original action, and verifies the row result. The workflow schema and original confirmed plan are unchanged.
+
+SQLite's existing `objects` table stores typed `recovery` audit records and `recovery_memory` mappings. No destructive schema migration is needed. Memory is written only after the row checkpoint and result verification; future uses require the same original intent/site and a unique currently present replacement. Rejected/unresolved attempts do not trigger per-row model calls. Restart invalidates in-flight proposals and pauses the run for fresh observation. Stop cancels pending proposals; approval resumes a paused worker.
+
+Tavily is an optional, domain-filtered fallback after local recovery is inconclusive. Missing credentials, network failure, and loopback sites skip it gracefully. Only the explicitly bundled developer pages `/developer` and `/developer/sign-in` can be proposed for developer navigation. Navigation requires its own approval and restarts the uncommitted row on the approved page, then repeats local discovery. It cannot open arbitrary same-domain paths, other origins, application APIs, or third-party targets. One navigation attempt and the existing row retry budget bound the loop.
+
+Recovery APIs: `GET /runs/{id}/recoveries`, `POST /runs/{id}/recoveries/{recovery_id}/approve`, and `POST /runs/{id}/recoveries/{recovery_id}/reject`. Existing stop/resume controls remain in use. `POST /runs` accepts optional `recovery_demo: true` for a private-browser Login → Sign In fixture. Normal browser tabs and the weather app are unaffected.
+
+The run UI and test report show recovery history; Excel adds a Recoveries worksheet and the existing Bob `runtime_logs.json` contains `tests` and `recoveries`. PASS/FAIL/ERROR values remain compatible with existing consumers. Exported standalone Playwright code remains the original confirmed test; the adaptive approval loop runs in WatchMyWork.
+
 `/health`, `/sample`, `/datasets`, `/datasets/{id}/rows/{index}`, `/demos`, `/teach/current`, `/workflows/infer`, `/workflows/manual`, `/workflows/{id}/confirm`, `/workflows/{id}/save`, `/runs`, `/runs/{id}/{pause|resume|stop}`, `/runs/{id}/exceptions`, `/runs/{id}/download`, `/dashboard`, `/metrics`, `/metrics/download`.
 
 OpenAPI is available locally at http://127.0.0.1:8000/docs. API mutations from a client must set `X-WatchMyWork: local-demo`.

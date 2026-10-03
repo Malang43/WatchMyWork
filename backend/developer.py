@@ -41,8 +41,10 @@ def generate(plan):
     return '\n'.join(lines)
 
 def report(run, dataset, results):
+    from .recovery import history
     plan = run['plan']
-    return [{**r, 'test_case': r['row_index'] + 1, 'expected': dataset['rows'][r['row_index']][plan['expected_column']], 'actual': r['value']} for r in results]
+    recoveries = history(run['id'])
+    return [{**r, 'recoveries': [e for e in recoveries if e['row_index'] == r['row_index']], 'test_case': r['row_index'] + 1, 'expected': dataset['rows'][r['row_index']][plan['expected_column']], 'actual': r['value']} for r in results]
 
 def package(run, dataset, results):
     directory = Path(os.getenv('BOB_DEBUG_DIR', str(ROOT / 'bob_debug_package'))) / run['id']
@@ -50,5 +52,8 @@ def package(run, dataset, results):
     rows = report(run, dataset, results)
     files = {'generated_test.spec.py': generate(run['plan']), 'test_cases.json': json.dumps(dataset['rows'], indent=2), 'failed_tests.json': json.dumps([r for r in rows if r['status'] in ('FAIL', 'ERROR')], indent=2), 'workflow.json': json.dumps(run['plan'], indent=2), 'runtime_logs.json': json.dumps([{'test_case': r['test_case'], 'status': r['status'], 'reason': r['reason'], 'retries': r['retries'], 'seconds': r['seconds']} for r in rows], indent=2), 'selectors.json': json.dumps([s['target'] for s in run['plan']['steps'] if s.get('target')], indent=2), 'failure_summary.md': '# IBM Bob debugging task\n\nAnalyze these failing Playwright tests. Determine whether the failure is caused by the test, selector, or application behavior. Suggest the smallest safe fix and rerun the affected tests.\n\nNo IBM Bob API was called. This package contains local test data; review it before sharing.\n\nStart the local mock site, then run the generated Python file with the project virtual environment. It loads test_cases.json from this directory and runs all cases, including blanks and duplicates.\n\n' + f"Run: {run['id']}\nState: {run['state']}\nFailures: {sum(r['status'] == 'FAIL' for r in rows)}\nRuntime errors: {sum(r['status'] == 'ERROR' for r in rows)}\n"}
     for name, content in files.items():
+        if name == 'runtime_logs.json':
+            from .recovery import history
+            content = json.dumps({'tests': json.loads(content), 'recoveries': history(run['id'])}, indent=2)
         (directory / name).write_text(content, encoding='utf-8')
     return str(directory)
