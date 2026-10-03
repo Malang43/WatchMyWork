@@ -121,6 +121,8 @@ async def evaluate(original, candidates, steps):
 
 def safe_navigation(url, original):
     a, b = urlsplit(url), urlsplit(original)
+    if original == config.DEVELOPER_URL and url == config.DEVELOPER_URL + '?recovery_demo=1':
+        return True
     # Bundled demo pages only, even if the provider suggests another same-origin route.
     allowed = (config.DEVELOPER_URL, config.DEVELOPER_RECOVERY_URL) if original in (config.DEVELOPER_URL, config.DEVELOPER_RECOVERY_URL) else (config.WEATHER_URL,)
     return (a.scheme, a.netloc) == (b.scheme, b.netloc) and not (a.username or a.password or a.query or a.fragment) and url in allowed

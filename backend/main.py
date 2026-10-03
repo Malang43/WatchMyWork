@@ -78,7 +78,7 @@ def _no_demos():
     raise HTTPException(422, 'Record a demonstration with this test mapping first')
 
 def create_workflow(plan, request, demos, source, metric_id=None):
-    workflow = store.put('workflow', {'id': store.uid(), 'plan': plan.model_dump(), 'created_at': store.now(), 'confirmed': False, 'saved': False, 'source': source, 'dataset_id': request.dataset_id, 'demo_ids': [d['id'] for d in demos], 'human_corrections': 0})
+    workflow = store.put('workflow', {'id': store.uid(), 'plan': plan.model_dump(), 'created_at': store.now(), 'updated_at': store.now(), 'confirmed': False, 'saved': False, 'source': source, 'dataset_id': request.dataset_id, 'demo_ids': [d['id'] for d in demos], 'human_corrections': 0})
     if metric_id:
         with store.connect() as db:
             db.execute('UPDATE inference SET workflow_id=? WHERE id=? OR (workflow_id IS NULL AND dataset_id=?)', (workflow['id'], metric_id, request.dataset_id))
@@ -250,10 +250,12 @@ def manual_workflow(request: InferRequest):
     return create_workflow(demonstrated_plan(request, request.destination_column), request, demos, 'manual')
 
 @app.get('/workflows')
-def workflows():
+def workflows(saved_only: bool = False):
     runs = [executor.summary(r) for r in store.listing('run')]
     items = []
     for workflow in store.listing('workflow'):
+        if saved_only and not workflow.get('saved'):
+            continue
         history = [r for r in runs if r['workflow_id'] == workflow['id']]
         last = history[0] if history else None
         items.append({**workflow, 'run_count': len(history), 'last_success_rate': round(100 * last['successful'] / last['total'], 1) if last and last['total'] else None})
@@ -269,14 +271,14 @@ def edit_workflow(item_id: str, plan: Workflow):
     validate_columns(require('dataset', item['dataset_id']), plan.input_columns, plan.destination_column)
     if any(plan.model_dump().get(k) != Workflow.model_validate(item['plan']).model_dump().get(k) for k in ('input_columns', 'destination_column', 'mode', 'expected_column', 'status_column')):
         raise HTTPException(422, 'Record another example to change the column mapping')
-    item.update(plan=plan.model_dump(), confirmed=False, human_corrections=item['human_corrections'] + 1)
+    item.update(plan=plan.model_dump(), confirmed=False, updated_at=store.now(), human_corrections=item['human_corrections'] + 1)
     return store.put('workflow', item)
 
 @app.post('/workflows/{item_id}/confirm')
 def confirm(item_id: str):
     item = require('workflow', item_id)
     Workflow.model_validate(item['plan'])
-    item['confirmed'] = True
+    item.update(confirmed=True, saved=True, updated_at=store.now())
     return store.put('workflow', item)
 
 @app.post('/workflows/{item_id}/save')
@@ -284,7 +286,7 @@ def save_workflow(item_id: str):
     item = require('workflow', item_id)
     if not item['confirmed']:
         raise HTTPException(409, 'Confirm the workflow before saving it')
-    item['saved'] = True
+    item.update(saved=True, updated_at=store.now())
     return store.put('workflow', item)
 
 @app.post('/runs')

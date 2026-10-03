@@ -90,8 +90,6 @@ def execute(run_id):
                             if browser is None or not browser.is_connected():
                                 browser = pw.chromium.launch(headless=True)
                                 context = browser.new_context(service_workers='block')
-                                if run.get('recovery_demo'):
-                                    context.add_init_script("sessionStorage.setItem('watchmywork-recovery-demo', '1')")
                                 context.route('**/*', lambda route: route.continue_() if allowed_url(route.request.url, weather) else route.abort())
                                 page = context.new_page()
                                 page.set_default_timeout(7000)
@@ -99,6 +97,8 @@ def execute(run_id):
                                 page = browser.contexts[0].new_page()
                                 page.set_default_timeout(7000)
                             execution_url = store.get('run', run_id).get('recovery_url', plan.url)
+                            if run.get('recovery_demo') and execution_url == config.DEVELOPER_URL:
+                                execution_url += '?recovery_demo=1'
                             if not recovery.safe_navigation(execution_url, plan.url):
                                 raise BrowserError('Invalid recovery URL')
                             page.goto(execution_url, wait_until='domcontentloaded', timeout=10000)

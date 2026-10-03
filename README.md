@@ -166,13 +166,33 @@ External search through Tavily is optional and only used as a fallback after loc
 
 Loopback sites cannot be searched publicly, so Tavily is skipped for `127.0.0.1`. On Railway it can propose only the bundled developer page and its `/developer/sign-in` alias. The user must approve navigation before the executor restarts the uncommitted row and repeats local discovery. This intentionally preserves the project's bundled-demo-only scope; unrelated origins, arbitrary same-domain URLs and third-party authentication are blocked. Public indexing of a Railway demo is not guaranteed.
 
-### Demonstrate Login ? Sign In
+### Saved workflows and the query-based recovery demo
 
-1. Record, confirm and finish the normal developer test workflow.
-2. On its completed run, click **Run Recovery Demo**.
-3. This run's private browser sees `Sign In` with a changed element ID; your normal portal and weather page remain unchanged.
-4. Review **Login ? Sign In** and click **Approve & Continue**.
-5. Watch the remaining rows reuse the verified repair. Repeat the recovery demo to show persistent memory without another model call.
+Confirmation automatically saves a workflow in SQLite. **Saved Workflows** loads the library from the backend, so browser refresh or cleared session storage does not remove it. Existing confirmed workflows are restored to the library on backend startup. Each workflow retains its plan, input and expected-result mappings, timestamps, dataset and recorded-demo references; recovery history and memory remain in the same database.
+
+Use **Load Workflow** to inspect the stored plan, **Run Saved Workflow** to rerun the original spreadsheet, or **Use on another spreadsheet** to reuse it with a new upload. Editing a saved plan updates its timestamp and requires confirmation again; the workflow stays visible in the library.
+
+The existing API supports save, list, load and update:
+
+- `POST /workflows/{id}/confirm`: confirm and save immediately.
+- `POST /workflows/{id}/save`: explicitly save a confirmed workflow (preserved).
+- `GET /workflows?saved_only=true`: list the library; plain `/workflows` still includes drafts.
+- `GET /workflows/{id}`: load the persisted workflow.
+- `PUT /workflows/{id}`: validate updates and revoke confirmation until reviewed again.
+
+**Railway persistence requires a persistent volume mounted at `/data` and `DATABASE_PATH=/data/watchmywork.sqlite3`.** Keep the same volume and database path across redeployments. SQLite on an ephemeral container filesystem cannot survive replacement of that container. No new environment variables or database reset are needed.
+
+### Demonstrate Login to Sign In
+
+1. Open `/developer` (locally `http://127.0.0.1:5173/developer`). It shows **Login**, ID `login-button`.
+2. Upload the developer spreadsheet and record Email `dev@example.com`, Password `test123`, click Login, and wait for **Login successful** and **Test demonstration captured**.
+3. Analyze and confirm the workflow. Confirmation saves it immediately; no completed run is required.
+4. Refresh WatchMyWork, open **Saved Workflows**, and click **Load Workflow**.
+5. Open `/developer?recovery_demo=1`. It shows **Sign In**, ID `sign-in-button`, with exactly the same login behavior. Returning to `/developer` restores Login; no code edit, session-storage toggle or redeployment is needed.
+6. In Saved Workflows, click **Run Recovery Demo**. This explicitly sends the executor's separate browser to the changed URL while preserving the recorded Login plan. Simply opening a changed-mode tab does not change a normal run's target.
+7. Review **Login → Sign In**, click **Approve & Continue**, and inspect the **PASS — recovered** result. Further rows and runs can reuse the verified repair.
+
+**Run Saved Workflow** always uses the normal URL. The existing **Run Recovery Demo** button on completed runs also uses the query-based changed URL.
 
 If an equivalent repair was already approved, memory is reused immediately and shown in the history. For a first-approval demonstration, use an isolated fresh test database; never delete working results to reset the demo.
 

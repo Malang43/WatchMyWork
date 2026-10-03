@@ -1,5 +1,6 @@
 import { useState } from 'react';
 export function DeveloperPortal() {
+  const changed = new URLSearchParams(window.location.search).get('recovery_demo') === '1';
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [result, setResult] = useState('');
@@ -69,12 +70,12 @@ export function DeveloperPortal() {
           />
 
           <button
-            id="sign-in-button"
+            id={changed ? 'sign-in-button' : 'login-button'}
             type="submit"
             disabled={busy}
-            aria-label="Sign In"
+            aria-label={changed ? 'Sign In' : 'Login'}
           >
-            {busy ? 'Checking…' : 'Sign In'}
+            {busy ? 'Checking…' : changed ? 'Sign In' : 'Login'}
           </button>
 
           <output

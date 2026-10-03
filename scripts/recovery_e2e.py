@@ -33,12 +33,37 @@ with sync_playwright() as pw:
     browser = pw.chromium.launch()
     page = browser.new_page(viewport={'width': 1440, 'height': 1100})
     try:
-        response = client.post(f"/runs/{active[0]['id']}/resume") if active else client.post('/runs', json={'workflow_id': workflow['id'], 'dataset_id': workflow['dataset_id'], 'recovery_demo': True})
-        assert response.status_code == 200
-        run_id = response.json()['id']
+        portal = browser.new_page()
+        # Query mode is deterministic, including after a prior changed-mode visit.
+        for suffix, selector, name in [('', '#login-button', 'Login'), ('?recovery_demo=1', '#sign-in-button', 'Sign In'), ('', '#login-button', 'Login')]:
+            portal.goto('http://127.0.0.1:5173/developer' + suffix)
+            expect(portal.locator(selector)).to_have_text(name)
+            portal.locator('#email-input').fill('dev@example.com')
+            portal.locator('#password-input').fill('test123')
+            portal.locator(selector).click()
+            expect(portal.locator('#login-result')).to_have_text('Login successful')
+        portal.goto('http://127.0.0.1:5173/developer?recovery_demo=1')
         page.goto('http://127.0.0.1:5174/')
-        page.get_by_role('button', name='Runs', exact=True).click()
-        page.get_by_role('button', name='View run').first.click()
+        page.get_by_role('button', name='Saved Workflows', exact=True).click()
+        card = page.locator('.workflow-card').filter(has=page.get_by_role('heading', name=workflow['plan']['workflow_name'], exact=True)).first
+        expect(card).to_be_visible()
+        # Clear all tab state to prove the library is fetched from SQLite.
+        page.evaluate('sessionStorage.clear(); localStorage.clear()')
+        page.reload()
+        page.get_by_role('button', name='Saved Workflows', exact=True).click()
+        expect(card).to_be_visible()
+        card.get_by_role('button', name='Load Workflow', exact=True).click()
+        expect(page.get_by_role('region', name='Loaded workflow')).to_contain_text('#login-button')
+        if active:
+            response = client.post(f"/runs/{active[0]['id']}/resume")
+            run_id = response.json()['id']
+            page.get_by_role('button', name='Runs', exact=True).click()
+            page.get_by_role('button', name='View run').first.click()
+        else:
+            with page.expect_response(lambda response: response.url.endswith('/runs') and response.request.method == 'POST') as response:
+                card.get_by_role('button', name='Run Recovery Demo', exact=True).click()
+            assert response.value.status == 200
+            run_id = response.value.json()['id']
         panel = page.get_by_role('region', name='Adaptive Recovery Agent')
         # A clean isolated validation DB gives an initial approval, then reusable memory.
         expect(panel.get_by_role('heading', name='Website change detected')).to_be_visible(timeout=45000)
@@ -49,6 +74,7 @@ with sync_playwright() as pw:
         panel.get_by_role('button', name='Approve & Continue').click()
         first = wait_run(run_id)
         assert first['ERROR'] == 0
+        assert (first['PASS'], first['FAIL']) == (5, 1), 'Changed mode must preserve all login outcomes'
         entries = client.get(f'/runs/{run_id}/recoveries').json()
         assert all(e['state'] == 'recovered' for e in entries)
         assert any(e['method'] == 'Approved memory' for e in entries)
@@ -58,6 +84,12 @@ with sync_playwright() as pw:
         assert second['ERROR'] == 0 and second['PASS'] == first['PASS']
         assert client.get('/metrics').json()['total_ai_calls'] == calls
         assert all(e['method'] == 'Approved memory' for e in client.get(f"/runs/{repeat['id']}/recoveries").json())
+        page.get_by_role('button', name='Saved Workflows', exact=True).click()
+        with page.expect_response(lambda response: response.url.endswith('/runs') and response.request.method == 'POST') as normal_response:
+            card.get_by_role('button', name='Run Saved Workflow', exact=True).click()
+        normal = wait_run(normal_response.value.json()['id'])
+        assert (normal['PASS'], normal['FAIL'], normal['ERROR']) == (5, 1, 0)
+        assert client.get(f"/runs/{normal['id']}/recoveries").json() == []
         book = load_workbook(io.BytesIO(client.get(f'/runs/{run_id}/download').content))
         assert 'Recoveries' in book.sheetnames
         assert client.post(f'/runs/{run_id}/debug/package').status_code == 200
@@ -66,6 +98,6 @@ with sync_playwright() as pw:
             assert logs['recoveries']
             assert 'test123' not in json.dumps(logs) and 'dev@example.com' not in json.dumps(logs)
         page.screenshot(path=str(ARTIFACTS / 'recovery-complete.png'), full_page=True)
-        print('PASS: real browser Login -> Sign In, approval, resume, all rows, memory reuse, no repeated AI calls, Excel and Bob audit.')
+        print('PASS: both query modes, identical login, saved workflow after refresh and load, real browser Login -> Sign In, approval, resume, all rows, memory reuse, no repeated AI calls, Excel and Bob audit.')
     finally:
         browser.close()

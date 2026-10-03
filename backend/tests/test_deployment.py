@@ -48,7 +48,7 @@ for bad in (origin + '/datasets', origin + '/docs', 'https://attacker.invalid/de
 assert allowed_url('https://api.open-meteo.com/v1/forecast?latitude=1&longitude=2&current=temperature_2m', True)
 with TestClient(app, base_url=origin) as client:
     assert client.get('/').text == '<html>frontend</html>'
-    for path in ('/developer', '/developer/sign-in', '/weather'):
+    for path in ('/developer', '/developer?recovery_demo=1', '/developer/sign-in', '/weather'):
         assert client.get(path).text == '<html>demo</html>'
     for path in ('/assets/app.js', '/demo-static/assets/app.js', '/health', '/docs', '/openapi.json'):
         assert client.get(path).status_code == 200

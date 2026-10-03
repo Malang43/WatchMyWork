@@ -61,7 +61,7 @@ function App() {
       <main id="main" className="main-content">
         {page === 'Dashboard' && <DashboardPage onNew={() => startNew()} onRun={viewRun} onSaved={() => navigate('Saved Workflows')} />}
         <div hidden={page !== 'New Workflow'}><Wizard key={wizardKey} reuse={reuse} onRun={id => { sessionStorage.removeItem('watchmywork-wizard'); setReuse(null); setWizardKey(v => v + 1); viewRun(id); }} /></div>
-        {page === 'Saved Workflows' && <SavedPage onReuse={startNew} />}
+        {page === 'Saved Workflows' && <SavedPage onReuse={startNew} onRun={viewRun} />}
         {page === 'Runs' && (selectedRun ? <RunPage id={selectedRun} onRun={viewRun} onBack={() => setSelectedRun(null)} /> : <RunsPage onRun={viewRun} />)}
         {page === 'Settings' && <SettingsPage configured={health.data?.api_key_configured ?? false} />}
         {page === 'Research Metrics' && <MetricsPage />}
@@ -172,10 +172,43 @@ function Wizard({ reuse, onRun }: { reuse: Workflow | null; onRun: (id: string) 
     </section>}
   </>;
 }
-function SavedPage({ onReuse }: { onReuse: (w: Workflow) => void }) {
-  const { data, error, refresh } = useResource<Workflow[]>('/workflows');
-  const saved = data?.filter(w => w.saved && w.confirmed) || [];
-  return <><PageHeading eyebrow="YOUR LIBRARY" title="Saved workflows" description="A pattern you’ve taught. Ready for the next spreadsheet." />{error && <ErrorBox text={error} retry={refresh} />}{saved.length ? <div className="workflow-grid">{saved.map(w => <section className="panel workflow-card" key={w.id}><span className="row-icon"><Icon name="Saved Workflows" /></span><Badge value="confirmed" /><h2>{w.plan.workflow_name}</h2><p>{inputColumns(w.plan).join(', ')} → {w.plan.destination_column}</p><div className="workflow-facts"><span>Created <strong>{formatDate(w.created_at)}</strong></span><span>Runs <strong>{w.run_count}</strong></span><span>Last success <strong>{w.last_success_rate === null ? '—' : `${w.last_success_rate}%`}</strong></span></div><button className="secondary" onClick={() => onReuse(w)}>Use on another spreadsheet →</button></section>)}</div> : <section className="panel"><Empty title="Keep your best workflows close"><p>After a run, choose Save Workflow to reuse it without teaching again.</p></Empty></section>}</>;
+function SavedPage({ onReuse, onRun }: { onReuse: (w: Workflow) => void; onRun: (id: string) => void }) {
+  const { data, error, refresh } = useResource<Workflow[]>('/workflows?saved_only=true');
+  const [loaded, setLoaded] = useState<Workflow | null>(null);
+  const [actionError, setActionError] = useState('');
+  const [busy, setBusy] = useState(false);
+  async function load(w: Workflow, runMode?: boolean) {
+    setBusy(true); setActionError('');
+    try {
+      const current = await api<Workflow>(`/workflows/${w.id}`);
+      setLoaded(current);
+      if (runMode !== undefined) {
+        const run = await post<Run>('/runs', { workflow_id: current.id, dataset_id: current.dataset_id, recovery_demo: runMode });
+        onRun(run.id);
+      }
+    } catch (e) { setActionError((e as Error).message); }
+    finally { setBusy(false); }
+  }
+  return <><PageHeading eyebrow="YOUR LIBRARY" title="Saved workflows" description="Confirmed workflows are saved automatically. Load or rerun them without recording again." />
+    {(error || actionError) && <ErrorBox text={actionError || error} retry={refresh} />}
+    {data?.length ? <div className="workflow-grid">{data.map(w => <section className="panel workflow-card" key={w.id}>
+      <Badge value={w.confirmed ? 'confirmed' : 'needs confirmation'} /><h2>{w.plan.workflow_name}</h2>
+      <p>{inputColumns(w.plan).join(', ')} &rarr; {w.plan.destination_column}</p>
+      <p>Created {formatDate(w.created_at)} &middot; Updated {formatDate(w.updated_at || w.created_at)}</p><div className="workflow-facts"><span>Runs <strong>{w.run_count}</strong></span><span>Last success <strong>{w.last_success_rate == null ? 'Not run' : `${w.last_success_rate}%`}</strong></span></div>
+      <p><a href={w.plan.url} target="_blank" rel="noreferrer">Open normal website</a></p>
+      {w.plan.mode === 'developer' && <p><a href={`${DEVELOPER}?recovery_demo=1`} target="_blank" rel="noreferrer">Open changed recovery-demo website</a></p>}
+      <div className="button-row">
+        <button className="secondary" disabled={busy} onClick={() => void load(w)}>Load Workflow</button>
+        <button disabled={busy || !w.confirmed} onClick={() => void load(w, false)}>Run Saved Workflow</button>
+        {w.plan.mode === 'developer' && <button className="secondary" disabled={busy || !w.confirmed} onClick={() => void load(w, true)}>Run Recovery Demo</button>}
+        <button className="secondary" disabled={busy || !w.confirmed} onClick={() => onReuse(w)}>Use on another spreadsheet &rarr;</button>
+      </div>
+    </section>)}</div> : <section className="panel"><Empty title="Keep your best workflows close"><p>Confirm a demonstrated workflow to save it here automatically.</p></Empty></section>}
+    {loaded && <section className="panel" aria-label="Loaded workflow"><h2>{loaded.plan.workflow_name}</h2><p>{loaded.plan.goal}</p><p>Target: {loaded.plan.url}</p>
+      <ol>{loaded.plan.steps.map((s, i) => <li key={i}>{s.action}: {s.target || s.column}</li>)}</ol>
+      {!loaded.confirmed && <button disabled={busy} onClick={async () => { setBusy(true); setActionError(''); try { setLoaded(await post<Workflow>(`/workflows/${loaded.id}/confirm`)); refresh(); } catch (e) { setActionError((e as Error).message); } finally { setBusy(false); } }}>Confirm Workflow</button>}
+    </section>}
+  </>;
 }
 function RunsPage({ onRun }: { onRun: (id: string) => void }) {
   const { data, error, refresh } = useResource<Run[]>('/runs', 2000);

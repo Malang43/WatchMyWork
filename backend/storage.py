@@ -41,6 +41,15 @@ def init():
         if demo['state'] == 'recording':
             demo['state'] = 'interrupted'
             put('demo', demo)
+    # Existing confirmed workflows were persisted but hidden by the library's
+    # separate saved flag. Promote them without replacing plans or references.
+    for workflow in listing('workflow'):
+        changed = 'updated_at' not in workflow or (workflow.get('confirmed') and not workflow.get('saved'))
+        workflow.setdefault('updated_at', workflow.get('created_at', now()))
+        if workflow.get('confirmed'):
+            workflow['saved'] = True
+        if changed:
+            put('workflow', workflow)
     for run in listing('run'):
         if run['state'] in ('running', 'retrying'):
             run['state'] = 'paused'
