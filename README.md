@@ -1,340 +1,194 @@
-# WatchMyWork
+﻿# WatchMyWork — Show Once. Automate Anywhere.
 
-> **Show one browser test. Generate and run the rest.**
+Demonstrate a browser workflow once, turn it into reusable automation, and run it across spreadsheet records with Playwright. **Adaptive Recovery / Search Agent** is the newest feature: when a page changes, WatchMyWork searches for an equivalent action, explains its proposal, and asks for approval before continuing.
 
-WatchMyWork is a demonstration-driven developer testing system. Instead of asking a developer to manually write repetitive browser automation from scratch, WatchMyWork records one example, converts the demonstration into a reusable workflow, generates a Playwright test, runs the workflow across a dataset, and reports **PASS / FAIL / ERROR** results.
+**Team: Titans Arc**
 
-It is designed as a local-first hackathon MVP with a human confirmation gate, deterministic browser execution, and an IBM Bob debugging handoff.
+**Team Leader: M Farhat Mehdi**
 
----
+[Live app](https://watchmywork-production.up.railway.app) · [Repository](https://github.com/Malang43/WatchMyWork)
 
-## Why WatchMyWork?
+Built for the **IBM Bob 2.0 Hackathon**, demonstrating Generative AI, Agentic AI, AI Workflows, Business Process Automation, and IBM Bob integration. The current MVP automates only bundled demo pages; the tagline describes the broader vision.
 
-Developers repeatedly spend time on browser test setup, data entry, expected-vs-actual validation, and debugging failed cases.
+## What Problem It Solves
 
-WatchMyWork reduces that repetitive work by changing the interaction model:
+Repeated browser work often follows the same pattern: copy a value from an Excel row, paste it into a website, click/search, read the result, and update the output. Writing and maintaining automation adds effort, especially when selectors change.
 
-**Traditional approach**
+WatchMyWork learns from a demonstration. Its primary demo tests a synthetic developer login form using `Email`, `Password`, `Expected Result`, `Actual Result`, and `Status` columns. It compares expected and actual results and reports **PASS / FAIL / ERROR**.
 
-```text
-Describe the test
-→ write automation code
-→ debug selectors
-→ prepare test data
-→ run cases
-→ inspect failures
-```
-
-**WatchMyWork**
+## How It Works
 
 ```text
-Upload test cases
-→ demonstrate one test
-→ review learned workflow
-→ generate Playwright test
-→ run the full suite
-→ inspect PASS / FAIL results
-→ prepare a Bob debug package
+Upload Data → Map Columns → Demonstrate Once → AI Understands Workflow
+→ Human Confirms → Playwright Executes → PASS / FAIL / ERROR Results
 ```
 
-The core idea is simple:
+The custom Chrome extension records semantic actions during Teach Mode. NVIDIA Nemotron through OpenRouter generalizes the demonstration into a structured workflow. The backend validates schemas, selectors, mappings, and origins before human confirmation. A local semantic compiler supports the developer demo when inference is unavailable; the weather manual path is explicitly labeled as an inference-outage fallback.
 
-> **Do not explain every browser step to the AI. Show the workflow once.**
+Playwright executes confirmed plans across records, checkpoints each result, and exports updated Excel output. Ordinary rows do not make model calls. Developer workflows also support generated, data-driven Playwright tests and a Bob debugging handoff.
 
----
+### Saved Workflows
 
-## Primary Hackathon Workflow
+Confirmation automatically saves workflows in SQLite. **Saved Workflows** remains available after refresh and backend restart when the database is retained. Users can **Load Workflow**, **Run Saved Workflow**, or **Use on another spreadsheet**. Editing a plan requires confirmation again. Successfully verified, approved recovery mappings are stored for reuse.
 
-The main demo is a developer login-testing workflow.
+## Adaptive Recovery Agent
 
-A spreadsheet contains:
+When a recorded step fails, the agent follows a bounded recovery loop:
 
 ```text
-Email | Password | Expected Result | Actual Result | Status
+Detect Failure → Inspect Page → Search Candidates → AI Reasoning
+→ Recovery Proposal → Approve & Continue → Execute → Verify → Remember
 ```
 
-The developer demonstrates one test on the bundled local developer portal:
+It inspects visible elements and compares accessible text/name, role, label, placeholder, input type, and form context. Nemotron through OpenRouter can choose an equivalent action from discovered compatible candidates using validated JSON. A deterministic semantic fallback keeps local recovery available during model outages.
+
+The run screen shows the original action, replacement, reason, method, and confidence. Confidence is a ranking estimate. Each new repair needs **Approve & Continue**; users may also **Reject** or **Stop Run**. Playwright rechecks the candidate after approval and resumes execution. Stale or ambiguous matches fail safely. Verified repairs are remembered in SQLite and reused only when a unique equivalent element remains.
+
+**Implemented recovery example:**
+
+| Recorded page | Changed page |
+|---|---|
+| Login — `#login-button` | Sign In — `#sign-in-button` |
+| `/developer` | `/developer?recovery_demo=1` |
+
+The changed page keeps the same synthetic login behavior. Results retain **PASS / FAIL / ERROR**, with a recovered annotation. Recovery history appears in the run, test report, Excel **Recoveries** worksheet, and Bob Debug Package. Standalone generated tests contain the original confirmed plan; interactive recovery and memory belong to the WatchMyWork executor.
+
+## Search Agent / Tavily Fallback
+
+**Local semantic page search is the primary recovery mechanism.** External search is optional:
 
 ```text
-Fill Email
-→ Fill Password
-→ Click Login
-→ Read Result
+Local Page Search → AI Semantic Reasoning → Tavily Search Fallback
 ```
 
-WatchMyWork then:
+If local recovery is insufficient and a page/function may have moved, the backend can use Tavily with `TAVILY_API_KEY`. The application works without Tavily; missing credentials or service failures preserve local recovery and normal failure reporting.
 
-1. records semantic browser events;
-2. maps spreadsheet columns to page inputs;
-3. asks Nemotron to generalize the demonstration;
-4. falls back to a local semantic compiler if the model is unavailable;
-5. requires human review and confirmation;
-6. generates a reusable Playwright test;
-7. executes all test rows deterministically;
-8. compares expected and actual results;
-9. reports `PASS`, `FAIL`, or `ERROR`;
-10. creates a debug package that can be opened in IBM Bob IDE.
-
----
-
-## What Makes It Different?
-
-### Demonstration-first automation
-The user teaches the workflow by performing it instead of writing a long automation prompt.
-
-### AI once, deterministic execution afterward
-The model is used during workflow inference, **not once per test row**. Bulk execution is handled by Playwright.
-
-### Human confirmation gate
-No learned workflow runs automatically before the user reviews and confirms it.
-
-### Developer-focused outputs
-WatchMyWork produces:
-
-- generated Playwright test code;
-- PASS / FAIL / ERROR test results;
-- updated spreadsheet output;
-- failed-case summaries;
-- reusable workflow JSON;
-- IBM Bob debug packages.
-
-### Local-first privacy
-Spreadsheet contents, browser execution, checkpoints, and most test artifacts stay on the local machine. Only the minimum semantic workflow information required for inference is sent to the configured model provider.
-
----
+Tavily is skipped for loopback sites. Hosted search uses a domain filter, and navigation targets must match the configured origin and explicitly allowed bundled pages, including `/developer/sign-in`. Navigation requires approval and fresh local discovery. Arbitrary same-domain routes and third-party targets are blocked. Public indexing of the Railway demo is not guaranteed.
 
 ## Architecture
 
 ```mermaid
 flowchart LR
-    A[Test Spreadsheet] --> B[React Frontend]
-    B --> C[Teach Mode]
-    C --> D[Chrome Extension Recorder]
-    D --> E[Semantic Demonstration Events]
-
-    E --> F[FastAPI Backend]
-    F --> G[Nemotron via OpenRouter]
-    G --> H[Validated Workflow]
-    F --> I[Semantic Fallback Compiler]
-    I --> H
-
-    H --> J[Human Review + Confirmation]
-    J --> K[Playwright Test Generator]
-    J --> L[Playwright Executor]
-
-    L --> M[PASS / FAIL / ERROR Results]
-    M --> N[Updated Excel / CSV]
-    M --> O[Bob Debug Package]
-
-    O --> P[IBM Bob IDE]
+    A[Excel / CSV] --> B[React App]
+    B --> C[Chrome Extension: Teach Mode]
+    C --> D[FastAPI: Semantic Workflow]
+    D --> E[Nemotron via OpenRouter]
+    E --> F[Validation + Human Confirmation]
+    D --> F
+    F --> G[Playwright + Chromium]
+    F --> H[(SQLite: Saved Workflows)]
+    G --> I[Results + Excel Export]
+    G --> J[Local Semantic Recovery]
+    J --> E
+    J --> K[Optional Tavily Fallback]
+    J --> L[Recovery Approval]
+    K --> L
+    L --> G
+    I --> M[Bob Debug Package]
+    M --> N[IBM Bob IDE]
 ```
 
-### Components
-
-| Component | Purpose |
+| Directory | Purpose |
 |---|---|
-| React + TypeScript frontend | Upload test data, configure mappings, review workflow, run tests, inspect results |
-| FastAPI backend | Workflow validation, inference orchestration, persistence, test generation, execution |
-| Chrome Extension (Manifest V3) | Records semantic browser actions during Teach Mode |
-| Playwright | Deterministic browser test execution |
-| SQLite | Local run state, checkpoints, workflow persistence |
-| Nemotron via OpenRouter | Generalizes a recorded demonstration into a reusable workflow |
-| Semantic fallback compiler | Keeps the demo usable if the free model is slow or unavailable |
-| IBM Bob IDE | Reviews/debugs failed cases using the generated debug package |
+| `frontend/` | Uploads, mappings, Teach Mode, confirmation, saved workflows, results, recovery approval |
+| `backend/` | FastAPI, inference, validation, SQLite persistence, execution, recovery, exports |
+| `extension/` | Custom Manifest V3 Chrome semantic recorder; no build step |
+| `mock-site/` | Independently working developer portal and Open-Meteo weather demo |
+| `sample-data/` | Synthetic CSV/XLSX inputs, including `developer-tests.csv` |
+| `scripts/` | Sample generation and browser validation |
+| `bob_sessions/` | IBM Bob task/session evidence location |
 
----
+See [ARCHITECTURE.md](ARCHITECTURE.md), [PROJECT_SPEC.md](PROJECT_SPEC.md), and [RECOVERY_VALIDATION.md](RECOVERY_VALIDATION.md) for implementation details and prior validation evidence.
 
+## Technology Stack
 
-## Adaptive Recovery Agent
-
-> Traditional browser automation remembers where you clicked.
-> WatchMyWork remembers what you intended to do.
-
-**Demonstrate ? Execute ? Detect Change ? Search ? Recover ? Verify ? Continue**
-
-For the Pak Angels Generative & Agentic AI Hackathon, WatchMyWork combines generative workflow inference with an actual recovery reasoning loop: observe the failure, understand the recorded intent, search the current page, evaluate compatible candidates, propose a repair, obtain approval, act with Playwright, verify the result, and remember a successful repair.
-
-When an input or button selector fails, the agent searches visible page elements using accessible roles/names, labels, placeholders, input types and form context. Nemotron through the existing OpenRouter integration selects from discovered candidates using validated JSON. It cannot invent selectors, change the action type, or generate executable JavaScript. A deterministic semantic fallback keeps local recovery available during model outages.
-
-The run screen shows **Website change detected**, the original and replacement action, method, confidence and reason. Choose **Approve & Continue**, **Reject**, or **Stop Run**. Confidence is a ranking estimate, not a guaranteed probability. Approval is required for every new repair, even a high-scoring one. Playwright checks the candidate again after approval; ambiguous or stale matches fail safely.
-
-Successful verified repairs are stored in SQLite and reused only when a unique equivalent element still exists. No model calls are made for ordinary rows or repeated approved repairs. Rejected/unresolved changes are bounded to one analysis per intent per run. Recovery history appears in the run, test report, Excel **Recoveries** worksheet, and Bob Debug Package. PASS/FAIL/ERROR values remain unchanged, with a ?recovered? annotation in the UI.
-
-### Optional Tavily fallback
-
-External search through Tavily is optional and only used as a fallback after local semantic recovery. Add `TAVILY_API_KEY` to the backend environment only. The integration uses Tavily's [Search API](https://docs.tavily.com/documentation/api-reference/search) with a domain filter. If the key is missing or the service fails, local recovery and normal failure reporting continue.
-
-Loopback sites cannot be searched publicly, so Tavily is skipped for `127.0.0.1`. On Railway it can propose only the bundled developer page and its `/developer/sign-in` alias. The user must approve navigation before the executor restarts the uncommitted row and repeats local discovery. This intentionally preserves the project's bundled-demo-only scope; unrelated origins, arbitrary same-domain URLs and third-party authentication are blocked. Public indexing of a Railway demo is not guaranteed.
-
-### Saved workflows and the query-based recovery demo
-
-Confirmation automatically saves a workflow in SQLite. **Saved Workflows** loads the library from the backend, so browser refresh or cleared session storage does not remove it. Existing confirmed workflows are restored to the library on backend startup. Each workflow retains its plan, input and expected-result mappings, timestamps, dataset and recorded-demo references; recovery history and memory remain in the same database.
-
-Use **Load Workflow** to inspect the stored plan, **Run Saved Workflow** to rerun the original spreadsheet, or **Use on another spreadsheet** to reuse it with a new upload. Editing a saved plan updates its timestamp and requires confirmation again; the workflow stays visible in the library.
-
-The existing API supports save, list, load and update:
-
-- `POST /workflows/{id}/confirm`: confirm and save immediately.
-- `POST /workflows/{id}/save`: explicitly save a confirmed workflow (preserved).
-- `GET /workflows?saved_only=true`: list the library; plain `/workflows` still includes drafts.
-- `GET /workflows/{id}`: load the persisted workflow.
-- `PUT /workflows/{id}`: validate updates and revoke confirmation until reviewed again.
-
-**Railway persistence requires a persistent volume mounted at `/data` and `DATABASE_PATH=/data/watchmywork.sqlite3`.** Keep the same volume and database path across redeployments. SQLite on an ephemeral container filesystem cannot survive replacement of that container. No new environment variables or database reset are needed.
-
-### Demonstrate Login to Sign In
-
-1. Open `/developer` (locally `http://127.0.0.1:5173/developer`). It shows **Login**, ID `login-button`.
-2. Upload the developer spreadsheet and record Email `dev@example.com`, Password `test123`, click Login, and wait for **Login successful** and **Test demonstration captured**.
-3. Analyze and confirm the workflow. Confirmation saves it immediately; no completed run is required.
-4. Refresh WatchMyWork, open **Saved Workflows**, and click **Load Workflow**.
-5. Open `/developer?recovery_demo=1`. It shows **Sign In**, ID `sign-in-button`, with exactly the same login behavior. Returning to `/developer` restores Login; no code edit, session-storage toggle or redeployment is needed.
-6. In Saved Workflows, click **Run Recovery Demo**. This explicitly sends the executor's separate browser to the changed URL while preserving the recorded Login plan. Simply opening a changed-mode tab does not change a normal run's target.
-7. Review **Login → Sign In**, click **Approve & Continue**, and inspect the **PASS — recovered** result. Further rows and runs can reuse the verified repair.
-
-**Run Saved Workflow** always uses the normal URL. The existing **Run Recovery Demo** button on completed runs also uses the query-based changed URL.
-
-If an equivalent repair was already approved, memory is reused immediately and shown in the history. For a first-approval demonstration, use an isolated fresh test database; never delete working results to reset the demo.
-
-```powershell
-# After starting all three servers; run these sequentially.
-.\.venv\Scripts\python.exe -X utf8 scripts/developer_e2e.py
-.\.venv\Scripts\python.exe -X utf8 scripts/recovery_e2e.py
-.\.venv\Scripts\python.exe -X utf8 scripts/weather_e2e.py --manual
-```
-
-`recovery_e2e.py` expects a fresh recovery-memory database and the developer workflow created by the preceding script. It verifies approval, resumed execution, memory reuse, unchanged AI-call counts on reuse, Excel recovery export and Bob audit data. The weather `--manual` path tests an explicitly labeled inference outage, not live Nemotron availability.
-
-### Recovery API and deployment
-
-- `GET /runs/{id}/recoveries`: proposals and recovery audit history.
-- `POST /runs/{id}/recoveries/{recovery_id}/approve`: approve the current proposal and resume.
-- `POST /runs/{id}/recoveries/{recovery_id}/reject`: reject the repair; record an error for that row.
-- Existing `POST /runs/{id}/stop` cancels pending recovery.
-- Existing `POST /runs` accepts optional `recovery_demo: true` for developer workflows.
-
-No new dependencies or destructive migrations are required. Recovery records use SQLite's existing object storage and persist on the Railway volume. Keep all current Railway variables. The only new optional Railway variable is **`TAVILY_API_KEY`**, set to your server-side Tavily key; leave it absent for local-only recovery. Never prefix it with `VITE_`. The standalone exported Playwright test remains the original confirmed plan; adaptive approval and memory are provided by the WatchMyWork executor.
+| Area | Technologies |
+|---|---|
+| Interface | React, TypeScript, Vite |
+| Backend and storage | Python, FastAPI, Pydantic, SQLite, openpyxl |
+| Browser automation | Custom Chrome Extension, Playwright, Chromium |
+| AI and search | NVIDIA Nemotron (`nvidia/nemotron-3.5-lightning:free`), OpenRouter, optional Tavily |
+| Delivery and debugging | Railway, Docker, GitHub, IBM Bob IDE integration |
 
 ## IBM Bob Integration
 
-IBM Bob is part of the developer debugging workflow.
-
-When WatchMyWork identifies failed test cases, it can create a **Bob Debug Package** containing artifacts such as:
+IBM Bob was used as part of the **IBM Bob 2.0 Hackathon** development and debugging workflow. WatchMyWork generates a structured **Bob Debug Package** with context from failed or problematic developer test runs:
 
 ```text
-generated_test.spec.py
-failed_tests.json
-workflow.json
-failure_summary.md
-runtime / error information
+generated_test.spec.py   test_cases.json   failed_tests.json
+workflow.json           runtime_logs.json
+selectors.json          failure_summary.md
 ```
 
-A developer opens this package in IBM Bob IDE to inspect the failure, reason about whether the issue comes from the application, selector, generated test, or test data, and propose a targeted fix.
+After a developer run, choose **Prepare Bob Debug Package**, download the ZIP, extract it, and open the folder in **IBM Bob IDE**. The package supports investigation of application behavior, selectors, generated tests, and test data; runtime logs include recovery audit history.
 
-The repository also contains:
+The repository retains [`bob_sessions/`](bob_sessions/) for authentic IBM Bob task/session summary screenshots used as hackathon evidence. Generated packages default to the Git-ignored `bob_debug_package/` directory. Packages contain test data and should be reviewed before sharing.
 
-```text
-bob_sessions/
+This is a direct IBM Bob IDE debugging handoff. No IBM Bob API is called, and Bob is not used for every execution step.
+
+## Chrome Extension Installation
+
+1. Open the [GitHub repository](https://github.com/Malang43/WatchMyWork), choose **Code → Download ZIP**.
+2. Extract the project.
+3. Open `chrome://extensions` in Chrome.
+4. Enable **Developer Mode**.
+5. Click **Load unpacked**.
+6. Select the project's `extension` folder containing `manifest.json`.
+7. Refresh the demo tab after installing or reloading the extension.
+
+The checked-in extension supports the bundled local demo and linked Railway origin. Recording is restricted to approved demo paths while Teach Mode is active. Enable one WatchMyWork recorder at a time.
+
+## Quick Demo
+
+### Normal test
+
+1. Install the extension and open the live app or local WatchMyWork frontend.
+2. Upload an Excel test sheet with the five developer columns, or use `sample-data/developer-tests.csv`.
+3. Map **Email** and **Password** as inputs; map **Expected Result**, **Actual Result**, and **Status**.
+4. Start Teach Mode recording and open `/developer` on the demo origin.
+5. Enter `dev@example.com` and `test123`, then click **Login**.
+6. Wait for **Login successful** and **Test demonstration captured**. Developer recording saves automatically; use **Stop Recording** if recording remains active.
+7. Analyze, review, and confirm the workflow.
+8. Run the test suite and view **PASS / FAIL / ERROR**. Download updated Excel or prepare a Bob Debug Package as needed.
+9. Choose **Save Workflow** after the run if needed; confirmation already saves it automatically.
+
+### Recovery Agent test
+
+1. Open **Saved Workflows** and load the confirmed developer workflow. Do not record again.
+2. Optionally inspect `/developer?recovery_demo=1`: it shows **Sign In** with `#sign-in-button` instead of **Login** with `#login-button`.
+3. Click **Run Recovery Demo** in Saved Workflows. This sends the executor's separate browser to the changed URL while preserving the recorded plan.
+4. Review **Login → Sign In**, its reason, and confidence.
+5. Click **Approve & Continue**. Playwright resumes and verifies the result.
+6. Inspect the recovered annotation and recovery history. Matching expected results remain **PASS**.
+
+**Run Saved Workflow** uses the normal URL; opening a changed page in another tab alone does not change its target. Existing verified repairs are reused without a new approval prompt. For first-approval validation, use an isolated fresh test database; preserve working datasets and results.
+
+The secondary weather demo uses Open-Meteo at local `/` or hosted `/weather`. It demonstrates live data through a bundled page; developer testing remains the primary hackathon workflow.
+
+## Environment Variables
+
+Configure the backend privately through the root `.env` or server environment. Use [.env.example](.env.example) as the template. Never commit secrets or place them in `VITE_` variables.
+
+```dotenv
+OPENROUTER_API_KEY=
+TAVILY_API_KEY=
 ```
 
-This folder stores authentic Bob task/session summary screenshots used as hackathon evidence.
-
-> WatchMyWork does not fake a Bob API integration. Bob is used directly through IBM Bob IDE.
-
----
-
-## Secondary Real-Time Weather Demo
-
-The bundled mock site also contains a secondary Open-Meteo demo.
-
-At:
-
-```text
-http://127.0.0.1:5173/
-```
-
-the user can enter latitude and longitude and retrieve the current temperature from Open-Meteo.
-
-This demonstrates that the same browser-facing infrastructure can interact with live external data, while the **developer testing workflow remains the primary hackathon use case**.
-
----
-
-## Local URLs
-
-| Component | Default URL |
+| Variable | Purpose |
 |---|---|
-| WatchMyWork frontend | `http://127.0.0.1:5174/` |
-| Developer test portal | `http://127.0.0.1:5173/developer` |
-| Weather demo | `http://127.0.0.1:5173/` |
-| Backend | `http://127.0.0.1:8000/` |
-| API docs | `http://127.0.0.1:8000/docs` |
-
-Use `127.0.0.1` rather than `localhost` because the recorder and local browser automation intentionally use the exact local origin.
-
----
-
-## Tech Stack
-
-### Frontend
-- React
-- TypeScript
-- Vite
-
-### Backend
-- Python
-- FastAPI
-- Pydantic
-- SQLite
-- openpyxl / spreadsheet processing
-
-### Automation
-- Chrome Extension Manifest V3
-- Playwright
-
-### AI
-- OpenRouter
-- `nvidia/nemotron-3.5-lightning:free`
-- local semantic workflow fallback
-
-### Developer workflow
-- IBM Bob IDE
-- generated Playwright tests
-- structured debug packages
-
----
-
-## Repository Structure
-
-```text
-WatchMyWork/
-├── backend/              # FastAPI API, schemas, inference, executor, persistence
-├── frontend/             # React + TypeScript application
-├── extension/            # Chrome semantic recorder
-├── mock-site/            # Developer portal + real-time weather demo
-├── sample-data/          # Safe synthetic test datasets
-├── scripts/              # E2E and validation utilities
-├── bob_sessions/         # IBM Bob task/session evidence screenshots
-├── bob_debug_package/    # Local generated debug artifacts (ignored by Git)
-├── ARCHITECTURE.md       # Detailed system architecture
-├── PROJECT_SPEC.md       # Supported behavior and acceptance criteria
-├── AGENTS.md             # Contributor / validation instructions
-├── .env.example          # Environment-variable template
-└── README.md
-```
-
----
+| `OPENROUTER_API_KEY` | Enables Nemotron workflow inference and recovery reasoning |
+| `TAVILY_API_KEY` | Optional external search fallback; unnecessary for local recovery |
+| `DATABASE_PATH` | SQLite path; defaults to `backend/data/watchmywork.sqlite3`; use `/data/watchmywork.sqlite3` on Railway |
+| `WATCHMYWORK_DATA_DIR` | Optional default database directory when `DATABASE_PATH` is absent |
+| `BOB_DEBUG_DIR` | Package directory; defaults to `bob_debug_package/`; use `/data/bob_debug_package` on Railway |
+| `WATCHMYWORK_PRODUCTION` | Set to `1` for hosted mode; set by the Docker image |
+| `PUBLIC_ORIGIN` | Optional exact HTTPS origin override, without a path or port |
+| `RAILWAY_PUBLIC_DOMAIN` | Railway-provided domain used when no explicit public origin is set |
+| `PORT` | Server port supplied by Railway; defaults to 8000 |
 
 ## Local Setup
 
-### Requirements
-
-- Python 3.13
-- Node.js 24+
-- npm
-- Google Chrome
-- Git
-
-Create the Python environment and install dependencies:
+Use Python 3.13, Node.js 24+, npm, Git, and Google Chrome. From the repository root in PowerShell:
 
 ```powershell
 python -m venv .venv
@@ -344,189 +198,58 @@ npm.cmd --prefix frontend ci
 npm.cmd --prefix mock-site ci
 ```
 
-Create a root `.env` file containing:
-
-```text
-OPENROUTER_API_KEY=your_key_here
-```
-
-Never commit `.env` or expose the API key in frontend code.
-
----
-
-## Run Locally
-
-Open three PowerShell terminals from the repository root.
-
-### 1. Backend
+Create the root `.env` privately from the template. Start each server in a separate terminal:
 
 ```powershell
 .\.venv\Scripts\python.exe -m uvicorn backend.main:app --host 127.0.0.1 --port 8000
 ```
 
-### 2. Main frontend
-
 ```powershell
 npm.cmd --prefix frontend run dev -- --host 127.0.0.1 --port 5174
 ```
-
-### 3. Developer portal / weather demo
 
 ```powershell
 npm.cmd --prefix mock-site run dev -- --host 127.0.0.1 --port 5173
 ```
 
-Stop a server with:
-
-```text
-Ctrl + C
-```
-
----
-
-## Install WatchMyWork Chrome Extension
-
-1. Download the project ZIP from [GitHub](https://github.com/Malang43/WatchMyWork) using **Code ? Download ZIP**, or clone the repository.
-2. Extract the ZIP.
-3. Open `chrome://extensions`.
-4. Enable **Developer Mode**.
-5. Click **Load unpacked**.
-6. Select the extracted project's `extension` folder (the folder containing `manifest.json`).
-7. Refresh the developer portal after loading or reloading the extension.
-
-This is a GitHub distribution using Chrome's unpacked-extension installation, not Chrome Web Store one-click installation. The app's Settings page links to these instructions.
-
-The extension records only the bundled local demo origin and only while Teach Mode is active.
-
----
-
-## Developer Demo
-
-Use the included developer test dataset.
-
-### Example test cases
-
-| Email | Password | Expected Result |
-|---|---|---|
-| `dev@example.com` | `test123` | `Login successful` |
-| `admin@example.com` | `admin123` | `Login successful` |
-| `dev@example.com` | `wrongpass` | `Invalid credentials` |
-| `unknown@example.com` | `abc123` | `User not found` |
-| blank | blank | `Email and password are required` |
-
-### Demo flow
-
-1. Upload the developer test spreadsheet.
-2. Select `Email` and `Password` as inputs.
-3. Select `Expected Result`, `Actual Result`, and `Status`.
-4. Start Teach Mode.
-5. Open `http://127.0.0.1:5173/developer`.
-6. Demonstrate one login test.
-7. Wait for **Test demonstration captured**.
-8. Analyze the workflow.
-9. Review and confirm it.
-10. Generate the Playwright test.
-11. Run the full test suite.
-12. Inspect PASS / FAIL / ERROR results.
-13. Prepare the Bob Debug Package for any failed test.
-
----
-
-## Generated Playwright Test
-
-WatchMyWork can generate a reusable, data-driven Playwright test from the learned workflow.
-
-The generated test is based on semantic mappings such as:
-
-```text
-Email    → #email-input
-Password → #password-input
-Click    → #login-button
-Result   → #login-result
-```
-
-The test is not limited to the single row demonstrated during Teach Mode.
-
----
-
-## Reliability and Safety
-
-The hackathon MVP includes several safeguards:
-
-- strict workflow schema validation;
-- selector and origin validation;
-- human confirmation before execution;
-- no model call per spreadsheet row;
-- automatic model retry handling;
-- semantic fallback if Nemotron is unavailable;
-- local SQLite checkpoints;
-- run recovery after interruption;
-- per-row execution isolation;
-- PASS / FAIL / ERROR reporting;
-- retry on browser automation errors;
-- API keys excluded from Git;
-- local debug packages excluded from Git.
-
----
-
-## Railway Deployment
-
-Deploy one Docker service with one public domain and one persistent volume. The existing three-server **local** setup and `extension/` remain unchanged.
-
-1. Connect this GitHub repository to Railway and select the repository root.
-2. Railway detects the root `Dockerfile`; `railway.json` sets `/health` as the health check. Both Vite apps are built into the Python container; no Node or Vite server runs in production.
-3. Add one persistent volume mounted at `/data`.
-4. Configure Railway variables:
-
-   ```text
-   OPENROUTER_API_KEY=<your server-side key>
-   DATABASE_PATH=/data/watchmywork.sqlite3
-   BOB_DEBUG_DIR=/data/bob_debug_package
-   ```
-
-   Railway supplies `PORT`. The Docker image sets `WATCHMYWORK_PRODUCTION=1`. Its start command is `python -m backend`, which runs one Uvicorn worker on `0.0.0.0:$PORT` (8000 if unset). Keep one service replica and one worker for the executor locks and SQLite.
-5. Deploy when ready. This repository preparation does not deploy anything.
-6. Generate the public domain. The backend uses Railway's `RAILWAY_PUBLIC_DOMAIN`; restart/redeploy after assigning the domain. For a custom domain or an explicit override, set `PUBLIC_ORIGIN` to the exact final HTTPS origin, without a path or trailing slash. Recording/execution require this origin; `/health` can pass before the domain exists.
-7. The checked-in `extension/` supports both localhost and `https://watchmywork-production.up.railway.app`. It selects the backend from the demo tab's trusted origin. For a different deployment or a production-only extension, generate one using the actual domain:
-
-   ```powershell
-   node extension/configure.mjs https://YOUR_FINAL_RAILWAY_DOMAIN
-   node extension/validate.mjs ../extension-production
-   ```
-
-   This creates `extension-production/` with only that host permission and `/developer*` and `/weather*` content-script matches. The recorder still accepts only the exact bundled demo paths. It leaves `extension/` intact.
-8. In `chrome://extensions`, reload your unpacked `extension/`, or regenerate and reload `extension-production/` if using that folder. Refresh both app and demo tabs. Enable only one WatchMyWork recorder extension to avoid duplicate recordings.
-9. Test `/developer`: upload the synthetic sample, record, infer, confirm, execute, download results, and create a Bob package. Test `/weather` against real Open-Meteo as well.
-
-**Production routes** share the final HTTPS origin:
-
-| Route | Purpose |
+| Component | Local URL |
 |---|---|
-| `/` | WatchMyWork frontend |
-| `/developer` | Bundled developer test portal |
-| `/weather` | Live Open-Meteo weather demo |
-| `/health` | Health check |
-| `/docs` | FastAPI documentation |
+| Main app | `http://127.0.0.1:5174/` |
+| Developer portal | `http://127.0.0.1:5173/developer` |
+| Recovery demo | `http://127.0.0.1:5173/developer?recovery_demo=1` |
+| Weather demo | `http://127.0.0.1:5173/` |
+| Backend / API docs | `http://127.0.0.1:8000/` / `http://127.0.0.1:8000/docs` |
 
-Existing API routes such as `/datasets`, `/demos`, `/workflows`, and `/runs` are preserved. Production frontend requests use relative URLs. Demo assets use `/demo-static/assets/`, separate from frontend `/assets/`. Direct refresh works for both demos. Local URLs remain those listed in **Local URLs** above.
+Use the exact `127.0.0.1` origins for local recording and automation.
 
-SQLite (including checkpoints) and generated Bob packages live on `/data`; parent directories are created automatically. Static files and source remain in the image. Debug files are not statically served; prepare and download the Bob Debug Package through the run UI. `bob_sessions/` remains committed hackathon evidence.
+### Railway deployment
 
-This remains a shared hackathon workspace without user authentication: public visitors can access workspace APIs and use the server's model quota. Host/CORS validation and confirmation are not access control. Use synthetic data only; add access control before sensitive or multi-user use. In hosted mode spreadsheet data and browser execution live on Railway, while inference still receives only stripped semantic metadata. Changing domains requires regenerating the extension and recording new workflows because saved workflow URLs are strictly validated. Free-model availability and Open-Meteo connectivity remain external dependencies.
+The root `Dockerfile` builds both Vite apps and installs Python dependencies and Chromium. `railway.json` configures `/health`; `python -m backend` starts the service. Hosted routes are `/` for the main app, `/developer` for the portal, and `/weather` for the weather demo.
 
-Optional local image check (Docker required):
+Mount a persistent volume at `/data`, set `OPENROUTER_API_KEY`, retain `DATABASE_PATH=/data/watchmywork.sqlite3` and `BOB_DEBUG_DIR=/data/bob_debug_package`, and optionally set `TAVILY_API_KEY`. Use one replica and one worker. Workflows, results, checkpoints, and recovery memory survive container replacement only when the database volume is retained.
+
+Railway supplies `PORT` and `RAILWAY_PUBLIC_DOMAIN`; restart/redeploy after assigning the public domain. For another domain, set `PUBLIC_ORIGIN` and generate a matching extension:
 
 ```powershell
-docker build -t watchmywork:railway .
+node extension/configure.mjs https://YOUR_FINAL_RAILWAY_DOMAIN
+node extension/validate.mjs ../extension-production
 ```
 
-The image installs the locked Python dependencies and their matching Chromium using [Playwright's browser installation procedure](https://playwright.dev/python/docs/browsers). Railway deployment settings follow its [configuration reference](https://docs.railway.com/config-as-code/reference).
+Load the generated folder in Chrome and record new workflows for the new origin. The existing local extension and three-server setup remain available.
 
----
+## Safety / Reliability
 
-## Validation
+- Strict Pydantic schemas, selector checks, and exact origin validation; automation is limited to bundled demo pages.
+- Explicit workflow confirmation and approval for new recovery proposals; models cannot invent recovery selectors or executable JavaScript.
+- Playwright executes plans; ordinary rows and approved memory reuse do not make per-row model calls.
+- Per-row isolation, bounded retries/recovery, and SQLite checkpoints committed before advancing preserve progress across interruptions.
+- Spreadsheet values are stripped from inference requests and metrics; discovery avoids input values, cookies, and browser storage. Secrets and full model responses are not logged.
+- In local mode, data, execution, results, and debug artifacts stay on the machine. Hosted mode stores and executes them on Railway.
+- The hosted MVP is a shared workspace without user authentication. Use synthetic data; access control is a prerequisite for sensitive or multi-user use.
 
-Run from the repository root:
+### Validation
+
+Run repository checks from PowerShell:
 
 ```powershell
 .\.venv\Scripts\python.exe -m pytest backend/tests -q
@@ -536,86 +259,26 @@ npm.cmd --prefix mock-site run build
 node extension/validate.mjs
 ```
 
-Current hackathon review baseline:
-
-```text
-Backend tests:      see the validation report for this change
-Mock-site tests:    23 passing
-Frontend build:     passing
-Mock-site build:    passing
-Extension validate: passing
-```
-
-For full browser validation:
+For browser validation, start all three servers against an isolated test database and run sequentially without editing the frontend:
 
 ```powershell
 .\.venv\Scripts\python.exe -X utf8 scripts/developer_e2e.py
+.\.venv\Scripts\python.exe -X utf8 scripts/recovery_e2e.py
+.\.venv\Scripts\python.exe -X utf8 scripts/weather_e2e.py --manual
 ```
 
----
+The recovery script expects the preceding developer workflow and fresh recovery memory. `--manual` validates the labeled inference-outage path, not live Nemotron availability. Backend tests use temporary databases and mocked model responses. See [RECOVERY_VALIDATION.md](RECOVERY_VALIDATION.md) for prior results and limitations; those checks were not rerun for this documentation update.
 
-## Privacy
+## Project Status
 
-WatchMyWork is intentionally local-first.
+Hackathon MVP with semantic recording, workflow inference, human confirmation, saved workflows, Playwright execution, Excel export, generated developer tests, IBM Bob debug packages, and adaptive recovery with approval and memory.
 
-The system is designed so that:
-
-- spreadsheets are processed locally;
-- browser automation runs locally;
-- run state is stored locally in SQLite;
-- generated debug packages remain local;
-- `.env` and local databases are excluded from Git;
-- only the minimum semantic workflow information needed for inference is sent to OpenRouter;
-- the system does not make a model request for every test row.
-
-Do not use real credentials, client-confidential data, personal information, or restricted datasets in the hackathon demo.
-
----
-
-## Current MVP Scope
-
-WatchMyWork currently focuses on:
-
-- spreadsheet-driven browser testing;
-- semantic demonstration recording;
-- structured workflow inference;
-- deterministic Playwright execution;
-- expected-vs-actual assertions;
-- reusable test generation;
-- developer debugging handoff.
-
-It is a hackathon MVP, not a general-purpose autonomous browser agent.
-
----
+Existing validation records real browser Login → Sign In recovery using deterministic fallback, plus mocked tests for AI recovery selection. Live Tavily was not exercised in that report. Model availability, external weather connectivity, and search indexing remain dependencies. The linked Railway app is the deployment entry point; deployment health is not asserted by this README.
 
 ## Roadmap
 
-Potential next steps include:
-
-- arbitrary multi-page developer workflows;
-- richer assertion types;
-- broader recovery intents and assertion types;
-- repository-aware test generation;
-- CI integration;
-- richer Bob-assisted debugging workflows;
-- more reusable workflow templates;
-- secure team collaboration;
-- optional cloud deployment while preserving local/private execution modes.
-
----
-
-## Hackathon Story
-
-**Problem:** browser testing is repetitive and expensive to author manually.
-
-**Insight:** a developer often knows how to perform the test already — the missing piece is turning that demonstration into reusable automation.
-
-**Solution:** WatchMyWork observes one browser test, converts it into a validated workflow, generates Playwright automation, executes the full dataset, reports failures, and packages debugging context for IBM Bob.
-
-**Result:** fewer repetitive manual steps, faster test creation, reusable automation, and a direct path from failure detection to developer debugging.
-
----
-
-## License
-
-Add the license selected for the hackathon submission here.
+- Broader, explicitly validated multi-page workflows and recovery intents.
+- Richer assertions and reusable workflow templates.
+- Repository-aware test generation and CI integration.
+- Expanded IBM Bob-assisted debugging workflows.
+- Secure team collaboration and access control while retaining local execution options.
